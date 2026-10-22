@@ -1,15 +1,17 @@
-// `npm run publish -- posts/<file>.md [--network bluesky|mastodon|discord] [--force]`
-// Publishes one post now to its direct networks, writes each result into the
-// file's frontmatter, prints one line per network. Credentials from `.env`.
+// `npm run publish -- posts/<file>.md [--network <name>] [--force]`
+// Publishes one post now to its networks among Bluesky, Mastodon, Discord and
+// Dev.to, writes each result into the file's frontmatter, prints one line per
+// network. Credentials from `.env`, or the environment (the Action).
 import { readFile, writeFile } from 'node:fs/promises';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse, serialize, expandNetworks, posted, record } from '../lib/post.mjs';
-import { DIRECT, publish, loadImage } from '../lib/publish.mjs';
+import { parse, serialize, expandNetworks, posted, record, NETWORKS } from '../lib/post.mjs';
+import { ACTION, publish, loadImage } from '../lib/publish.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 // The session that builds each of the other networks.
-const LATER = { devto: 3, x: 3, threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
+const LATER = { threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
+export const NAME = /^[\w.-]+\.md$/;
 
 export function creds(env) {
   return {
@@ -18,20 +20,21 @@ export function creds(env) {
     mastoUrl: env.MASTODON_URL,
     mastoToken: env.MASTODON_TOKEN,
     discordWebhook: env.DISCORD_WEBHOOK,
+    devtoKey: env.DEVTO_API_KEY,
   };
 }
 
 // Returns the number of attempted networks that failed.
 export async function run({ file, networks, force = false, env, fetch: f = fetch, sleep, log = console.log }) {
   const post = parse(await readFile(file, 'utf8'));
-  const name = file.split('/').pop();
+  const name = basename(file);
   const c = creds(env);
   const secrets = Object.values(c);
   let image;
   let failed = 0;
   for (const n of networks || expandNetworks(post.meta.networks)) {
-    if (!DIRECT.includes(n)) {
-      log(`${n} : not built yet, session ${LATER[n] || '?'}`);
+    if (!ACTION.includes(n)) {
+      log(n === 'x' ? 'x : manual, Compose in the page' : `${n} : not built yet, session ${LATER[n] || '?'}`);
       continue;
     }
     const done = posted(post, n);
@@ -41,7 +44,7 @@ export async function run({ file, networks, force = false, env, fetch: f = fetch
     }
     try {
       image ??= loadImage(post, async (p) => new Uint8Array(await readFile(join(dirname(file), p))));
-      const result = await publish(post, n, { creds: c, image: await image, name, fetch: f, sleep });
+      const result = await publish(post, n, { creds: c, image: await image, name, repository: env.GITHUB_REPOSITORY, fetch: f, sleep });
       record(post, n, result);
     } catch (e) {
       record(post, n, { error: e.message }, secrets);
@@ -64,9 +67,16 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     else if (args[i] === '--network') networks.push(args[++i]);
     else file = args[i];
   }
-  if (!file) {
-    console.error('usage : npm run publish -- posts/<file>.md [--network bluesky|mastodon|discord] [--force]');
+  const usage = `usage : npm run publish -- posts/<file>.md [--network ${NETWORKS.join('|')}] [--force]`;
+  if (!file || !NAME.test(basename(file)) || file.split('/').includes('..')) {
+    console.error(file ? `bad post name ${file}\n${usage}` : usage);
     process.exit(2);
+  }
+  for (const n of networks) {
+    if (!NETWORKS.includes(n)) {
+      console.error(`unknown network ${n}\n${usage}`);
+      process.exit(2);
+    }
   }
   try {
     process.loadEnvFile(join(ROOT, '.env'));

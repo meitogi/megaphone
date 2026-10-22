@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parse, serialize, render, slug, expandNetworks, AUTOMATED } from '../lib/post.mjs';
+import { parse, serialize, render, slug, expandNetworks, notDue, pending, intent, AUTOMATED } from '../lib/post.mjs';
 
 const SAMPLE = `---
 date: 2026-11-03T09:00+01:00
@@ -172,4 +172,94 @@ test('CTR guard-rail : gameplay gif or mp4 needs « bring your own disc »', () 
   assert.deepEqual(render(post({ image: 'img/race.gif', alt: 'Race' }, ok), 'bluesky').warnings, []);
   assert.deepEqual(render(post({ image: 'img/race.png', alt: 'Race' }, 'CTR in a browser tab.'), 'bluesky').warnings, []);
   assert.deepEqual(render(post({ image: 'img/x.gif', alt: 'X' }, 'An electric vector.'), 'bluesky').warnings, []);
+});
+
+// --- schedule -----------------------------------------------------------------------
+
+test('notDue : ready with a past or present date is due ; everything else says why', () => {
+  const now = Date.parse('2026-11-03T08:00:00Z');
+  const at = (status, date) => notDue({ meta: { status, date } }, now);
+  assert.equal(at('ready', '2026-11-03T09:00+01:00'), null);
+  assert.equal(at('ready', '2026-11-02'), null);
+  assert.equal(at('ready', '2026-11-03T09:01+01:00'), 'due 2026-11-03T09:01+01:00');
+  assert.equal(at('draft', '2026-11-01'), 'status draft');
+  assert.equal(at('published', '2026-11-01'), 'status published');
+  assert.equal(at(undefined, '2026-11-01'), 'status unset');
+  assert.equal(at('ready', undefined), 'no date');
+  assert.equal(at('ready', 'next tuesday'), 'unparseable date next tuesday');
+});
+
+test('pending : the able networks without a success, `all` expanded', () => {
+  const able = ['bluesky', 'mastodon', 'discord', 'devto'];
+  const meta = { networks: ['bluesky', 'devto', 'x', 'threads'], bluesky: 'https://bsky.app/p/1', devto: 'failed 2026-11-03T08:00:00Z devto : HTTP 401' };
+  assert.deepEqual(pending({ meta }, able), ['devto']);
+  meta.devto = 'https://dev.to/a';
+  assert.deepEqual(pending({ meta }, able), []);
+  assert.deepEqual(pending({ meta: { networks: 'all', discord: 'ok 42' } }, able), ['bluesky', 'mastodon']);
+  assert.deepEqual(pending({ meta: { networks: ['x', 'threads'] } }, able), []);
+});
+
+// --- intents --------------------------------------------------------------------------
+
+const TRICKY = 'Fish & chips #1? Yes.\nNext line é 🐈 100% a=b';
+const ILINK = 'https://a.io/p?x=1&y=2#frag';
+const ipost = (meta = {}, body = TRICKY, long = null) => ({ meta: { link: ILINK, title: 'Title & #1? é 🐈', sub: 'r/ClaudeAI', ...meta }, body, long });
+const decode = (url) => {
+  const u = new URL(url);
+  return { base: `${u.origin}${u.pathname}`, p: Object.fromEntries(new URLSearchParams(u.search)) };
+};
+
+test('intent x : the text in the URL, the link left for a reply', () => {
+  const it = intent(ipost(), 'x');
+  const { base, p } = decode(it.url);
+  assert.equal(base, 'https://x.com/intent/post');
+  assert.deepEqual(p, { text: TRICKY });
+  assert.equal(it.copy, ILINK);
+  assert.ok(!('copy' in intent(ipost({ link: undefined }), 'x')));
+  assert.deepEqual(intent(ipost({}, '  '), 'x'), { blocked: 'No text' });
+});
+
+test('intent threads : the rendered text, link and tags included', () => {
+  const post = ipost({ tags: ['oss'] });
+  const { base, p } = decode(intent(post, 'threads').url);
+  assert.equal(base, 'https://www.threads.com/intent/post');
+  assert.deepEqual(p, { text: `${TRICKY}\n\n${ILINK}\n\n#oss` });
+  assert.equal(p.text, render(post, 'threads').text);
+  assert.deepEqual(intent(ipost({ link: undefined }, ''), 'threads'), { blocked: 'No text' });
+});
+
+test('intent linkedin : the long variant with the link, also offered as a copy', () => {
+  const it = intent(ipost({}, TRICKY, `Long & #2 é\n${ILINK}`), 'linkedin');
+  const { base, p } = decode(it.url);
+  assert.equal(base, 'https://www.linkedin.com/feed/');
+  assert.deepEqual(p, { shareActive: 'true', text: `Long & #2 é\n\n${ILINK}` });
+  assert.equal(it.copy, p.text);
+});
+
+test('intent facebook : the link only, the text to paste', () => {
+  const it = intent(ipost(), 'facebook');
+  const { base, p } = decode(it.url);
+  assert.equal(base, 'https://www.facebook.com/sharer/sharer.php');
+  assert.deepEqual(p, { u: ILINK });
+  assert.equal(it.copy, TRICKY);
+  assert.deepEqual(intent(ipost({ link: undefined }), 'facebook'), { blocked: 'Needs a link' });
+});
+
+test('intent reddit : title, self text with the link, the sub without r/', () => {
+  const { base, p } = decode(intent(ipost(), 'reddit').url);
+  assert.equal(base, 'https://www.reddit.com/r/ClaudeAI/submit');
+  assert.deepEqual(p, { title: 'Title & #1? é 🐈', selftext: 'true', text: `${TRICKY}\n\n${ILINK}` });
+  assert.equal(decode(intent(ipost({ sub: '/r/vscode' }), 'reddit').url).base, 'https://www.reddit.com/r/vscode/submit');
+  assert.deepEqual(intent(ipost({ title: undefined }), 'reddit'), { blocked: 'Needs a title' });
+  assert.deepEqual(intent(ipost({ sub: undefined }), 'reddit'), { blocked: 'Needs a subreddit' });
+  assert.deepEqual(intent(ipost({ sub: 'r/' }), 'reddit'), { blocked: 'Needs a subreddit' });
+});
+
+test('intent hn : link and title', () => {
+  const { base, p } = decode(intent(ipost(), 'hn').url);
+  assert.equal(base, 'https://news.ycombinator.com/submitlink');
+  assert.deepEqual(p, { u: ILINK, t: 'Title & #1? é 🐈' });
+  assert.deepEqual(intent(ipost({ link: undefined }), 'hn'), { blocked: 'Needs a link' });
+  assert.deepEqual(intent(ipost({ title: undefined }), 'hn'), { blocked: 'Needs a title' });
+  assert.deepEqual(intent(ipost(), 'bluesky'), { blocked: 'bluesky : no composer' });
 });

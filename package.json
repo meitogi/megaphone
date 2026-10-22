@@ -15,7 +15,7 @@
     "brand": "node scripts/brand.mjs",
     "card": "node scripts/stub.mjs card 5",
     "publish": "node scripts/publish.mjs",
-    "due": "node scripts/stub.mjs due 3",
+    "due": "node scripts/due.mjs",
     "review": "node scripts/stub.mjs review 6",
     "linkedin:auth": "node scripts/stub.mjs linkedin:auth 4"
   },

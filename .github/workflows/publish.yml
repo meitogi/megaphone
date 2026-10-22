@@ -1,0 +1,71 @@
+# Every hour : publishes the due `ready` posts and moves the complete ones to
+# published/ (npm run due). On dispatch with `post` : publishes that post only,
+# to `network` if given — no date check, no move ; the next hourly run moves it
+# once complete. The logic lives in scripts/ ; inputs reach the shell through
+# env only, and scripts/publish.mjs validates them.
+name: publish
+
+on:
+  schedule:
+    - cron: '17 * * * *'
+  workflow_dispatch:
+    inputs:
+      post:
+        description: 'A file of posts/, e.g. 2026-11-03-sandbox-dns-refused.md ; empty = every due post'
+        required: false
+        type: string
+      network:
+        description: 'With post : one network, e.g. devto ; empty = all of its networks'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+
+concurrency:
+  group: publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Publish
+        env:
+          POST: ${{ inputs.post }}
+          NETWORK: ${{ inputs.network }}
+          BLUESKY_HANDLE: ${{ secrets.BLUESKY_HANDLE }}
+          BLUESKY_APP_PASSWORD: ${{ secrets.BLUESKY_APP_PASSWORD }}
+          MASTODON_URL: ${{ secrets.MASTODON_URL }}
+          MASTODON_TOKEN: ${{ secrets.MASTODON_TOKEN }}
+          DEVTO_API_KEY: ${{ secrets.DEVTO_API_KEY }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        run: |
+          if [ -z "$POST" ]; then
+            npm run due
+          elif [ -z "$NETWORK" ]; then
+            node scripts/publish.mjs "posts/$POST"
+          else
+            node scripts/publish.mjs "posts/$POST" --network "$NETWORK"
+          fi
+      # Always : a failed network exits 1, but its `failed …` key must land.
+      - name: Commit the results
+        if: always()
+        run: |
+          git add posts published
+          if git diff --cached --quiet; then
+            echo 'nothing to commit'
+            exit 0
+          fi
+          git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'publish: results'
+          for try in 1 2; do
+            git pull --rebase && git push && exit 0
+            sleep 5
+          done
+          exit 1

@@ -133,3 +133,31 @@ test('github backend : bytes() asks the raw media type for an image', async () =
   assert.equal(calls[0].init.headers.Accept, 'application/vnd.github.raw+json');
   assert.equal(calls[0].init.headers.Authorization, 'Bearer tok');
 });
+
+test('github backend : dispatch() runs publish.yml on main with the inputs', async () => {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push(new Request(url, init));
+    return new Response(null, { status: 204 });
+  };
+  const b = github({ owner: 'meitogi', repo: 'megaphone', token: 'tok', fetch: f });
+  assert.equal(await b.dispatch({ post: '2026-11-03-a.md', network: 'devto' }), undefined);
+  const [req] = calls;
+  assert.equal(req.url, 'https://api.github.com/repos/meitogi/megaphone/actions/workflows/publish.yml/dispatches');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers.get('authorization'), 'Bearer tok');
+  assert.equal(req.headers.get('accept'), 'application/vnd.github+json');
+  assert.equal(req.headers.get('x-github-api-version'), '2022-11-28');
+  const body = await req.json();
+  assert.deepEqual(Object.keys(body), ['ref', 'inputs']);
+  assert.equal(body.ref, 'main');
+  assert.deepEqual(Object.keys(body.inputs), ['post', 'network']);
+  assert.equal(body.inputs.post, '2026-11-03-a.md');
+  assert.equal(body.inputs.network, 'devto');
+});
+
+test('github backend : a refused dispatch throws with the status', async () => {
+  const f = async () => new Response('Resource not accessible by personal access token', { status: 403 });
+  const b = github({ owner: 'meitogi', repo: 'megaphone', token: 'tok', fetch: f });
+  await assert.rejects(b.dispatch({ post: 'a.md', network: 'devto' }), /^Error: dispatch : HTTP 403 Resource not accessible/);
+});

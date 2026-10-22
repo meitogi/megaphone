@@ -58,6 +58,10 @@
   .result { font-size: 13px; margin: 2px 0; overflow-wrap: anywhere; }
   .result a { color: var(--text); }
   .muted { color: var(--muted); font-size: 13px; }
+  .copy { display: flex; align-items: center; gap: 8px; font-size: 13px; margin: 2px 0; }
+  .copy span { overflow-wrap: anywhere; min-width: 0; }
+  .copy button { padding: 2px 8px; font-size: 13px; }
+  #manual { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 4px; }
 </style>
 </head>
 <body>
@@ -121,7 +125,7 @@
         <label>Link <input name="link" type="url" placeholder="https://github.com/meitogi/…"></label>
       </div>
       <div class="row">
-        <label>Title (Reddit, HN) <input name="title"></label>
+        <label>Title (Dev.to, Reddit, HN) <input name="title"></label>
         <label>Subreddit <input name="sub" placeholder="ClaudeAI"></label>
       </div>
       <label>Text <textarea name="body" rows="7"></textarea></label>
@@ -138,13 +142,15 @@
   <section>
     <h2>Preview</h2>
     <div id="preview"></div>
+    <h3>Manual</h3>
+    <div id="manual"></div>
   </section>
 </main>
 
 <script type="module">
-import { parse, serialize, render, slug, expandNetworks, posted, record, NETWORKS, STATUSES } from './lib/post.mjs';
+import { parse, serialize, render, slug, expandNetworks, posted, record, intent, NETWORKS, STATUSES } from './lib/post.mjs';
 import { local, github } from './lib/backends.mjs';
-import { DIRECT, SETTINGS, missing, publish, loadImage } from './lib/publish.mjs';
+import { ACTION, SETTINGS, missing, publish, loadImage } from './lib/publish.mjs';
 
 const KEY = 'megaphone.settings';
 const FIELDS = ['date', 'networks', 'image', 'alt', 'tags', 'link', 'title', 'sub', 'status'];
@@ -153,9 +159,18 @@ const form = $('#editor');
 
 // --- settings, all in localStorage -----------------------------------------
 
+// On <owner>.github.io/<repo>/ with nothing saved yet, the github backend of that repo.
+function defaults() {
+  const host = location.hostname;
+  if (!host.endsWith('.github.io')) return { backend: 'local' };
+  const owner = host.slice(0, -'.github.io'.length);
+  return { backend: 'github', owner, repo: location.pathname.split('/')[1] || host };
+}
 function loadSettings() {
-  try { return { backend: 'local', ...JSON.parse(localStorage.getItem(KEY) || '{}') }; }
-  catch { return { backend: 'local' }; }
+  try {
+    const raw = localStorage.getItem(KEY);
+    return raw ? { backend: 'local', ...JSON.parse(raw) } : defaults();
+  } catch { return defaults(); }
 }
 function saveSettings() {
   try { localStorage.setItem(KEY, JSON.stringify(settings)); }
@@ -382,14 +397,20 @@ function renderPreview() {
     btn.textContent = 'Publish';
     const why = blocker(n, r);
     btn.disabled = Boolean(why);
-    btn.title = why || `Publish to ${n} now`;
-    btn.addEventListener('click', () => publishNow(n, btn));
+    btn.title = why || (n === 'devto' ? 'Run publish.yml for devto on this post' : `Publish to ${n} now`);
+    btn.addEventListener('click', () => (n === 'devto' ? dispatchNow(btn) : publishNow(n, btn)));
     head.append(name, count, btn);
+    let it = null;
+    if (COMPOSE.includes(n)) {
+      it = intent(current.post, n);
+      head.append(composeButton(n, it, 'Compose'));
+    }
     const pre = document.createElement('pre');
     pre.textContent = r.text;
     card.append(head, pre);
+    if (it && it.copy) card.append(copyRow(n === 'x' ? 'Reply with the link :' : 'Text to paste :', it.copy));
     const result = current.post.meta[n];
-    if (DIRECT.includes(n) && result) {
+    if (ACTION.includes(n) && result) {
       const p = document.createElement('p');
       p.className = posted(current.post, n) ? 'result' : 'result warn';
       if (/^https?:\/\//.test(result)) {
@@ -410,17 +431,42 @@ function renderPreview() {
     }
     box.append(card);
   }
+  const manual = $('#manual');
+  manual.replaceChildren();
+  for (const [target, label] of MANUAL) manual.append(composeButton(target, intent(current.post, target), label));
+}
+
+function copyRow(label, text) {
+  const p = document.createElement('p');
+  p.className = 'copy';
+  const span = document.createElement('span');
+  span.textContent = `${label} ${text}`;
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = 'Copy';
+  btn.addEventListener('click', () => navigator.clipboard.writeText(text).then(
+    () => say('Copied'),
+    (e) => say(`Not copied : ${e.message}`, true),
+  ));
+  p.append(span, btn);
+  return p;
 }
 
 // --- publish now (Bluesky, Mastodon, Discord) -------------------------------
 
-const LATER = { devto: 3, x: 3, threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
+const LATER = { threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
 
 // Why `network` cannot be published right now, or null.
 function blocker(network, r) {
-  if (!DIRECT.includes(network)) return `session ${LATER[network]}`;
+  if (network === 'x') return 'No API : use Compose';
+  if (!ACTION.includes(network)) return `session ${LATER[network]}`;
   if (!current.name) return 'Save the post first';
   if (serialize(current.post) !== saved) return 'Unsaved changes : save first';
+  if (network === 'devto') {
+    if (settings.backend !== 'github') return 'Needs the github backend : the Action publishes from main';
+    if (!current.post.meta.title) return 'Needs a title';
+    return null;
+  }
   const lacks = missing(network, settings);
   if (lacks.length) return `Set in Settings : ${lacks.join(', ')}`;
   if (r.skipped || !r.text.trim()) return 'Nothing to publish';
@@ -457,6 +503,77 @@ async function publishNow(network, btn) {
     say(e.message, true);
     renderPreview();
   }
+}
+
+// --- Dev.to, through the Action -----------------------------------------------
+
+async function dispatchNow(btn) {
+  const done = posted(current.post, 'devto');
+  if (done && !confirm(`Already published to devto :\n${done}\n\nThe Action skips it unless the key is removed. Dispatch anyway ?`)) return;
+  btn.disabled = true;
+  say('Dispatching publish.yml for devto…');
+  try {
+    await backend().dispatch({ post: current.name, network: 'devto' });
+    say('Dispatched publish.yml for devto : reload in a minute');
+  } catch (e) {
+    say(e.message, true);
+  }
+  btn.disabled = false;
+}
+
+// --- pre-filled composers ---------------------------------------------------------
+
+const COMPOSE = ['x', 'threads', 'linkedin', 'facebook'];
+const MANUAL = [['reddit', 'Reddit'], ['hn', 'Hacker News']];
+const COMPOSER_WIDTH = 640;
+
+function composeButton(target, it, label) {
+  const btn = document.createElement('button');
+  btn.type = 'button';
+  btn.textContent = label;
+  btn.dataset.target = target;
+  btn.disabled = Boolean(it.blocked);
+  btn.title = it.blocked || `Open the ${target} composer, prefilled`;
+  btn.addEventListener('click', () => compose(target));
+  return btn;
+}
+
+// The post image as a PNG Blob : the only image type every clipboard accepts.
+async function pngBlob(path) {
+  const ext = path.slice(path.lastIndexOf('.') + 1).toLowerCase();
+  if (ext === 'mp4') throw new Error('a video is not copied');
+  const bytes = await backend().bytes(path);
+  if (ext === 'png') return new Blob([bytes], { type: 'image/png' });
+  const bitmap = await createImageBitmap(new Blob([bytes]));
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width;
+  canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('PNG conversion failed'))), 'image/png'));
+}
+
+// One click : the image goes to the clipboard, then the composer opens in a popup
+// docked right. Both happen synchronously in the click handler, so the browser
+// still counts the user's gesture ; the clipboard takes a Promise of the Blob,
+// which keeps Safari's activation while the image loads.
+function compose(target) {
+  const it = intent(current.post, target);
+  if (it.blocked) return say(it.blocked, true);
+  const image = target === 'hn' ? null : current.post.meta.image;
+  let copying = null;
+  try {
+    if (image) copying = navigator.clipboard.write([new ClipboardItem({ 'image/png': pngBlob(image) })]).then(() => 'image');
+    else if (it.copy) copying = navigator.clipboard.writeText(it.copy).then(() => 'text');
+  } catch (e) {
+    copying = Promise.reject(e);
+  }
+  const w = Math.min(COMPOSER_WIDTH, screen.availWidth);
+  window.open(it.url, 'composer', `popup,width=${w},height=${screen.availHeight},left=${screen.availWidth - w},top=0`);
+  if (!copying) return say(`${target} composer opened`);
+  copying.then(
+    (what) => say(what === 'image' ? `${target} composer opened, the image is on the clipboard : paste it` : `${target} composer opened, the text is on the clipboard`),
+    (e) => say(`${target} composer opened, but the ${image ? 'image' : 'text'} was not copied : ${e.message}`, true),
+  );
 }
 
 open({ name: null, sha: null, post: blank() });

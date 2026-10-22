@@ -5,10 +5,13 @@ static page and this Git repository. No database, no server, no paid API :
 the repo is the queue, GitHub Actions is the scheduler, GitHub Pages hosts
 the page.
 
-Status : direct publishing. The page lists, creates, edits and previews
-posts, and publishes one at once to Bluesky, Mastodon and Discord — from the
-page or with `npm run publish`. Scheduling and the other networks arrive in
-later versions (their buttons are there, disabled).
+Status : scheduling. The page lists, creates, edits and previews posts,
+publishes one at once to Bluesky, Mastodon and Discord, sends one to Dev.to
+through the Action, and opens the pre-filled composers of X, Threads,
+LinkedIn, Facebook, Reddit and Hacker News with the image on the clipboard.
+Every hour, the Action publishes the due `ready` posts. Threads, LinkedIn,
+Facebook and Instagram by API arrive in a later version (their Publish
+buttons are there, disabled).
 
 ## How it works
 
@@ -33,7 +36,8 @@ Optional long variant for LinkedIn and Facebook.
 
 `networks` is `all` (Bluesky, Mastodon, Threads, LinkedIn, Facebook,
 Instagram, Discord) or a list ; `x` and `devto` are reached only when listed.
-`title` and `sub` serve Reddit and Hacker News. `status` goes `draft` →
+`title` serves Dev.to (required there), Reddit and Hacker News ; `sub` is the
+subreddit. `status` goes `draft` →
 `ready` → `published`. Unknown keys are kept as they are.
 
 Per network, the text is adapted by [`lib/post.mjs`](lib/post.mjs), the same
@@ -62,9 +66,10 @@ disable » ; a CTR post with a GIF or MP4 says « bring your own disc ».
 3. **The Action publishes** : every hour, the due `ready` posts go out to
    every automated network and move to `published/`. A failing network is
    noted in the file and retried the next hour.
-4. **Pre-filled composers** : for X, Reddit and Hacker News, a button copies
-   the image to the clipboard and opens the network's composer already
-   filled in. One paste, one click.
+4. **Pre-filled composers** : for X, Reddit and Hacker News (and Threads,
+   LinkedIn, Facebook until their API arrives), a button copies the image to
+   the clipboard and opens the network's composer already filled in. One
+   paste, one click.
 
 ## Run it locally
 
@@ -79,8 +84,10 @@ devcontainer). The `local` backend reads and writes `posts/` on disk.
 
 The page also works against GitHub : in Settings, choose the `github`
 backend and give the owner, the repo and a fine-grained personal access
-token limited to this repository (Contents : read and write). Settings live
-in the browser's `localStorage` only. The repo is public : drafts are
+token limited to this repository (Contents : read and write ; Actions : read
+and write for the Dev.to button). Settings live in the browser's
+`localStorage` only. On GitHub Pages, with nothing saved yet, the page picks
+the `github` backend and reads the owner and the repo from its own address. The repo is public : drafts are
 public too, and no secret ever goes into a post.
 
 ## Publish now
@@ -118,28 +125,119 @@ page keeps the same values in its Settings :
 | `MASTODON_URL` | Mastodon instance URL | `https://fosstodon.org` |
 | `MASTODON_TOKEN` | Mastodon token | scopes `write:statuses write:media read:accounts` |
 | `DISCORD_WEBHOOK` | Discord webhook URL | the channel's webhook URL |
-| `DEVTO_API_KEY` | — | Dev.to API key, not used yet |
+| `DEVTO_API_KEY` | — | Dev.to API key (DEV Settings → Extensions) ; CLI and Action only |
+
+Dev.to is reached from the command line and from the Action only : its API
+answers no CORS request, so the page's Dev.to button dispatches the Action
+instead (below). The article is the post body as Markdown, `title` is
+required, the first four `tags` go lower-cased to letters and digits, and
+in the Action the cover is the post image on `raw.githubusercontent.com`.
+
+## Schedule
+
+A post is due when its `status` is `ready` and its `date` has passed (a
+missing or unreadable date is never due ; the run says so). Every hour, at
+minute 17, `.github/workflows/publish.yml` runs `npm run due`, which does
+the same locally :
+
+```
+npm run due
+```
+
+For each due post, every network it targets among Bluesky, Mastodon,
+Discord and Dev.to is published, exactly as `npm run publish` does. **When
+all of them hold a success**, the post gets `status: published` and moves to
+`published/` (same name ; images stay in `posts/img/`). Otherwise it stays
+`ready` in `posts/` : the next hour retries the failed networks and skips
+the ones already out. There is no retry limit — fix the cause (a secret, the
+text) and the next run picks it up. X is manual (Compose in the page) ;
+Threads, LinkedIn, Facebook and Instagram are not built yet and do not hold
+a post back, so a post moved before they are will not get their copy.
+
+The Action commits the results as `github-actions[bot]`, even when a network
+failed. To run it now, or for one post and one network (no date check, no
+move — the next hourly run moves it once complete) :
+
+```
+gh workflow run publish.yml
+gh workflow run publish.yml -f post=2026-11-03-sandbox-dns-refused.md -f network=devto
+```
+
+The page's Dev.to button does the second one, with the PAT of its settings :
+it needs the `github` backend and the post saved (the Action reads `main`).
+Reload a minute later to see the result.
+
+### Actions secrets
+
+Settings → Secrets and variables → Actions, one per value the networks
+need (a missing one fails only that network) :
+
+| Secret | Value |
+|---|---|
+| `BLUESKY_HANDLE` | `meitogi.bsky.social` |
+| `BLUESKY_APP_PASSWORD` | an app password |
+| `MASTODON_URL` | `https://fosstodon.org` |
+| `MASTODON_TOKEN` | scopes `write:statuses write:media read:accounts` |
+| `DEVTO_API_KEY` | the Dev.to API key |
+| `DISCORD_WEBHOOK` | the channel's webhook URL |
+
+## Pre-filled composers
+
+The X, Threads, LinkedIn and Facebook cards carry a « Compose » button ;
+Reddit and Hacker News sit in the « Manual » row under the preview (they
+need `title`, plus `sub` for Reddit, or `link` for Hacker News — a disabled
+button says which is missing). One click copies the post image to the
+clipboard as a PNG (other formats are converted) and opens the composer in a
+popup docked on the right, reused from one network to the next. Paste the
+image, check, post.
+
+| Network | Prefilled | Copy |
+|---|---|---|
+| X | the text | the link, to post as a reply |
+| Threads | the text, link and tags | — |
+| LinkedIn | the long text and the link (when LinkedIn honours it) | the same text |
+| Facebook | the link only | the text |
+| Reddit | title and text | — |
+| Hacker News | link and title | — |
+
+Without an image, the text a composer does not receive goes to the
+clipboard instead. A refused clipboard still opens the composer, and says
+so.
+
+## The page on GitHub Pages
+
+`.github/workflows/pages.yml` deploys the page on every push to `main` that
+touches `index.html`, `lib/` or the build. `scripts/site.mjs` copies `index.html` and
+`lib/*.mjs` into `site/` and nothing else ; a symlink, a sub-directory or
+any other file in `lib/` fails the build. Once, on GitHub : Settings → Pages
+→ Source : « GitHub Actions ». The page is then at
+`https://<owner>.github.io/megaphone/`.
 
 ## Scripts
 
 | Script | Does |
 |---|---|
 | `npm run ui` | the page and the local backend on `localhost:4173` |
-| `npm test` | `node --test` on the post logic, the backends and the publishing requests |
-| `npm run publish -- posts/<file>.md` | publish one post now to Bluesky, Mastodon, Discord (`--network`, `--force`) |
+| `npm test` | `node --test` on the post logic, the backends, the publishing requests, the schedule, the site build and the workflows |
+| `npm run publish -- posts/<file>.md` | publish one post now to Bluesky, Mastodon, Discord, Dev.to (`--network`, `--force`) |
+| `npm run due` | publish every due `ready` post, move the complete ones to `published/` |
+| `node scripts/site.mjs` | build `site/` for GitHub Pages |
 | `npm run brand` | `assets/avatar-400.png`, `avatar-1024.png`, `banner-1500x500.png` from the SVGs in `assets/` (needs DejaVu Sans, as in `fonts-dejavu-core`) |
-| `npm run card`, `due`, `review`, `linkedin:auth` | not built yet ; they exit 1 |
+| `npm run card`, `review`, `linkedin:auth` | not built yet ; they exit 1 |
 
 ## Layout
 
 ```
 index.html        the page : settings, list, editor, per-network preview
-lib/post.mjs      parse, serialize, render per network, slug
-lib/publish.mjs   Bluesky, Mastodon, Discord requests, shared by page and CLI
-lib/backends.mjs  local and GitHub backends : list, read, write, remove, bytes
+lib/post.mjs      parse, serialize, render per network, due and completion rules, intents
+lib/publish.mjs   Bluesky, Mastodon, Discord, Dev.to requests, shared by page and CLI
+lib/backends.mjs  local and GitHub backends : list, read, write, remove, bytes ; dispatch
 scripts/ui.mjs    the local server
 scripts/publish.mjs  npm run publish
+scripts/due.mjs   npm run due
+scripts/site.mjs  the Pages build
 scripts/brand.mjs profile images
+.github/workflows publish.yml (hourly + dispatch), pages.yml
 posts/            the queue ; posts/img/ for images
 published/        posts already out
 ideas.md          one line per post idea
@@ -157,6 +255,10 @@ git remote add origin git@github.com:meitogi/megaphone.git
 git push -u origin main
 git status -sb
 ```
+
+Then, on GitHub : the Actions secrets above, Settings → Pages → Source
+« GitHub Actions », and a fine-grained PAT for the page (Contents and
+Actions, read and write, this repository only).
 
 ## License
 

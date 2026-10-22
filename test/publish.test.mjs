@@ -4,8 +4,8 @@ import { mkdtemp, mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parse, serialize, facets, record, posted } from '../lib/post.mjs';
-import { publish, loadImage, missing, BSKY_MAX_BYTES } from '../lib/publish.mjs';
-import { run } from '../scripts/publish.mjs';
+import { publish, loadImage, missing, devtoTags, ACTION, BSKY_MAX_BYTES } from '../lib/publish.mjs';
+import { run, creds } from '../scripts/publish.mjs';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
@@ -314,6 +314,79 @@ test('cli : an mp4 is refused on every network without a call', async () => {
     assert.equal(calls.length, 0);
     const meta = parse(await readFile(file, 'utf8')).meta;
     for (const n of ['bluesky', 'mastodon', 'discord']) assert.match(meta[n], /video upload is not supported yet : images only$/);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+// --- Dev.to -----------------------------------------------------------------------
+
+const devtoPost = () => ({
+  meta: { networks: ['devto'], title: 'Megaphone ships', tags: ['Claude-Code', 'OSS', 'oss', 'Web Dev', 'a_b', 'sixth'], image: 'img/cat.png' },
+  body: 'Body with a [link](https://a.io) & é 🐈\n\nSecond paragraph.',
+  long: null,
+});
+const DEVTO_CREDS = { devtoKey: 'devto-secret-key' };
+
+test('devto : POST /api/articles with api-key, the v1 Accept, title, exact body, tags capped and lower-cased', async () => {
+  const { f, calls } = fakeFetch(() => Response.json({ id: 1, url: 'https://dev.to/meitogi/megaphone-ships-1a2b' }, { status: 201 }));
+  const p = devtoPost();
+  const { url } = await publish(p, 'devto', { creds: DEVTO_CREDS, fetch: f });
+  assert.equal(url, 'https://dev.to/meitogi/megaphone-ships-1a2b');
+  assert.equal(calls.length, 1);
+  const [req] = calls;
+  assert.equal(req.url, 'https://dev.to/api/articles');
+  assert.equal(req.method, 'POST');
+  assert.equal(req.headers.get('api-key'), 'devto-secret-key');
+  assert.equal(req.headers.get('accept'), 'application/vnd.forem.api-v1+json');
+  assert.equal(req.headers.get('content-type'), 'application/json');
+  assert.deepEqual(await req.json(), {
+    article: { title: 'Megaphone ships', body_markdown: p.body, published: true, tags: 'claudecode,oss,webdev,ab' },
+  });
+  assert.deepEqual(devtoTags(['Claude-Code', 'OSS', 'oss', 'Web Dev', 'a_b', 'sixth']), ['claudecode', 'oss', 'webdev', 'ab']);
+  assert.deepEqual(devtoTags(['---', 'C++']), ['c']);
+  assert.deepEqual(devtoTags(undefined), []);
+});
+
+test('devto : the cover is the raw.githubusercontent.com URL only when the repository is known', async () => {
+  const { f, calls } = fakeFetch(() => Response.json({ url: 'https://dev.to/x' }, { status: 201 }));
+  await publish(devtoPost(), 'devto', { creds: DEVTO_CREDS, fetch: f, repository: 'meitogi/megaphone' });
+  await publish(devtoPost(), 'devto', { creds: DEVTO_CREDS, fetch: f });
+  const noTags = devtoPost();
+  delete noTags.meta.tags;
+  delete noTags.meta.image;
+  await publish(noTags, 'devto', { creds: DEVTO_CREDS, fetch: f, repository: 'meitogi/megaphone' });
+  const [withRepo, without, bare] = await Promise.all(calls.map((c) => c.json()));
+  assert.equal(withRepo.article.main_image, 'https://raw.githubusercontent.com/meitogi/megaphone/main/posts/img/cat.png');
+  assert.ok(!('main_image' in without.article));
+  assert.deepEqual(Object.keys(bare.article), ['title', 'body_markdown', 'published']);
+});
+
+test('devto : no title, no key → no call', async () => {
+  const { f, calls } = fakeFetch(() => Response.json({ url: 'https://dev.to/x' }));
+  const p = devtoPost();
+  delete p.meta.title;
+  await assert.rejects(publish(p, 'devto', { creds: DEVTO_CREDS, fetch: f }), /^Error: devto : needs a title$/);
+  await assert.rejects(publish(devtoPost(), 'devto', { creds: {}, fetch: f }), /^Error: devto : missing Dev\.to API key$/);
+  assert.equal(calls.length, 0);
+  assert.deepEqual(ACTION, ['bluesky', 'mastodon', 'discord', 'devto']);
+});
+
+test('cli : devto publishes from DEVTO_API_KEY, the key never in a failed line, x is manual', async () => {
+  const { dir, file } = await tempPost('---\nnetworks: [devto, x]\ntitle: Ship\nstatus: draft\n---\nHello.\n');
+  const env = { ...ENV, DEVTO_API_KEY: 'devto-secret-key' };
+  // The error body echoes the key, as a careless server might.
+  const { f, calls } = fakeFetch((req) => Response.json({ error: `api-key ${req.headers.get('api-key')} is not valid`, status: 401 }, { status: 401 }));
+  const lines = [];
+  try {
+    assert.equal(creds(env).devtoKey, 'devto-secret-key');
+    assert.equal(await run({ file, env, fetch: f, log: (l) => lines.push(l) }), 1);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].headers.get('api-key'), 'devto-secret-key');
+    const text = await readFile(file, 'utf8');
+    assert.ok(!text.includes('devto-secret-key'));
+    assert.match(parse(text).meta.devto, /^failed \S+Z devto : HTTP 401 api-key \*\*\* is not valid$/);
+    assert.deepEqual(lines.slice(1), ['x : manual, Compose in the page']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
