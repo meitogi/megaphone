@@ -55,6 +55,8 @@
   .card pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; margin: 6px 0; }
   .card.skipped pre { opacity: .4; }
   .warn { color: var(--warn); font-size: 13px; margin: 2px 0; }
+  .result { font-size: 13px; margin: 2px 0; overflow-wrap: anywhere; }
+  .result a { color: var(--text); }
   .muted { color: var(--muted); font-size: 13px; }
 </style>
 </head>
@@ -140,8 +142,9 @@
 </main>
 
 <script type="module">
-import { parse, serialize, render, slug, expandNetworks, NETWORKS, STATUSES } from './lib/post.mjs';
+import { parse, serialize, render, slug, expandNetworks, posted, record, NETWORKS, STATUSES } from './lib/post.mjs';
 import { local, github } from './lib/backends.mjs';
+import { DIRECT, SETTINGS, missing, publish, loadImage } from './lib/publish.mjs';
 
 const KEY = 'megaphone.settings';
 const FIELDS = ['date', 'networks', 'image', 'alt', 'tags', 'link', 'title', 'sub', 'status'];
@@ -167,6 +170,7 @@ for (const input of document.querySelectorAll('[data-setting]')) {
     settings[k] = input.value.trim();
     saveSettings();
     if (k === 'backend' || k === 'owner' || k === 'repo' || k === 'token') reload();
+    else if (current) renderPreview();
   });
 }
 $('#toggle-settings').addEventListener('click', (e) => {
@@ -192,6 +196,7 @@ function say(msg, error = false) {
 
 let posts = []; // [{ name, sha, post }]
 let current = null; // { name, sha, post } ; name null until first save
+let saved = null; // serialize(current.post) as last read or written, to tell unsaved edits
 
 async function reload() {
   say('Loading…');
@@ -262,6 +267,7 @@ function blank() {
 
 function open(entry) {
   current = entry;
+  saved = entry.name ? serialize(entry.post) : null;
   const { meta, body, long } = entry.post;
   for (const f of FIELDS) {
     if (f === 'networks') continue;
@@ -371,15 +377,31 @@ function renderPreview() {
     const count = document.createElement('span');
     count.className = r.limit && r.count > r.limit ? 'count over' : 'count';
     count.textContent = r.limit ? `${r.count} / ${r.limit}` : `${r.count}`;
-    const publish = document.createElement('button');
-    publish.type = 'button';
-    publish.disabled = true;
-    publish.title = 'session 2';
-    publish.textContent = 'Publish';
-    head.append(name, count, publish);
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = 'Publish';
+    const why = blocker(n, r);
+    btn.disabled = Boolean(why);
+    btn.title = why || `Publish to ${n} now`;
+    btn.addEventListener('click', () => publishNow(n, btn));
+    head.append(name, count, btn);
     const pre = document.createElement('pre');
     pre.textContent = r.text;
     card.append(head, pre);
+    const result = current.post.meta[n];
+    if (DIRECT.includes(n) && result) {
+      const p = document.createElement('p');
+      p.className = posted(current.post, n) ? 'result' : 'result warn';
+      if (/^https?:\/\//.test(result)) {
+        const a = document.createElement('a');
+        a.href = result;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        a.textContent = result;
+        p.append('Published : ', a);
+      } else p.textContent = result;
+      card.append(p);
+    }
     for (const w of r.warnings) {
       const p = document.createElement('p');
       p.className = 'warn';
@@ -387,6 +409,53 @@ function renderPreview() {
       card.append(p);
     }
     box.append(card);
+  }
+}
+
+// --- publish now (Bluesky, Mastodon, Discord) -------------------------------
+
+const LATER = { devto: 3, x: 3, threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
+
+// Why `network` cannot be published right now, or null.
+function blocker(network, r) {
+  if (!DIRECT.includes(network)) return `session ${LATER[network]}`;
+  if (!current.name) return 'Save the post first';
+  if (serialize(current.post) !== saved) return 'Unsaved changes : save first';
+  const lacks = missing(network, settings);
+  if (lacks.length) return `Set in Settings : ${lacks.join(', ')}`;
+  if (r.skipped || !r.text.trim()) return 'Nothing to publish';
+  if (r.limit && r.count > r.limit) return `Over the limit : ${r.count} / ${r.limit}`;
+  return null;
+}
+
+async function publishNow(network, btn) {
+  const { post } = current;
+  const done = posted(post, network);
+  if (done && !confirm(`Already published to ${network} :\n${done}\n\nPost it again ?`)) return;
+  const { warnings } = render(post, network);
+  if (warnings.length && !confirm(`${warnings.join('\n')}\n\nPublish to ${network} anyway ?`)) return;
+  btn.disabled = true;
+  say(`Publishing to ${network}…`);
+  const secrets = [];
+  for (const k in SETTINGS[network]) secrets.push(settings[k]);
+  try {
+    const b = backend();
+    try {
+      const image = await loadImage(post, (p) => b.bytes(p));
+      record(post, network, await publish(post, network, { creds: settings, image, name: current.name }));
+    } catch (e) {
+      record(post, network, { error: e.message }, secrets);
+    }
+    const { sha } = await b.write(current.name, serialize(post), current.sha);
+    current.sha = sha;
+    saved = serialize(post);
+    const ok = posted(post, network);
+    await reload();
+    open({ ...current });
+    say(ok ? `Published to ${network} : ${ok}` : `${network} : ${post.meta[network]}`, !ok);
+  } catch (e) {
+    say(e.message, true);
+    renderPreview();
   }
 }
 

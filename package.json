@@ -7,14 +7,14 @@
   "license": "MIT",
   "author": "meitogi",
   "engines": {
-    "node": ">=20"
+    "node": ">=20.12"
   },
   "scripts": {
     "ui": "node scripts/ui.mjs",
     "test": "node --test test/*.test.mjs",
     "brand": "node scripts/brand.mjs",
     "card": "node scripts/stub.mjs card 5",
-    "publish": "node scripts/stub.mjs publish 2",
+    "publish": "node scripts/publish.mjs",
     "due": "node scripts/stub.mjs due 3",
     "review": "node scripts/stub.mjs review 6",
     "linkedin:auth": "node scripts/stub.mjs linkedin:auth 4"

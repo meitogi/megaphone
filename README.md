@@ -5,8 +5,10 @@ static page and this Git repository. No database, no server, no paid API :
 the repo is the queue, GitHub Actions is the scheduler, GitHub Pages hosts
 the page.
 
-Status : scaffold. The page lists, creates, edits and previews posts ;
-publishing arrives in later versions (the buttons are there, disabled).
+Status : direct publishing. The page lists, creates, edits and previews
+posts, and publishes one at once to Bluesky, Mastodon and Discord — from the
+page or with `npm run publish`. Scheduling and the other networks arrive in
+later versions (their buttons are there, disabled).
 
 ## How it works
 
@@ -39,7 +41,7 @@ module the page, the scripts and the tests import :
 
 | Network | Text | Limit |
 |---|---|---|
-| Bluesky | body, link kept in the text | 300 |
+| Bluesky | body, link as a facet | 300 |
 | Mastodon, Threads | body, link, `#tags` appended | 500 |
 | LinkedIn, Facebook | `## long` else body, link removed | — |
 | X | body | 280 |
@@ -81,22 +83,62 @@ token limited to this repository (Contents : read and write). Settings live
 in the browser's `localStorage` only. The repo is public : drafts are
 public too, and no secret ever goes into a post.
 
+## Publish now
+
+Bluesky, Mastodon and Discord are called directly : from the browser by the
+page's « Publish » button on each card, or from a terminal :
+
+```
+npm run publish -- posts/2026-11-03-sandbox-dns-refused.md
+npm run publish -- posts/2026-11-03-sandbox-dns-refused.md --network mastodon
+npm run publish -- posts/2026-11-03-sandbox-dns-refused.md --network discord --force
+```
+
+The text sent is exactly the preview's. Images are `posts/img/*.png`, `.jpg`,
+`.jpeg`, `.gif` or `.webp` (2 MB at most on Bluesky) ; video is not uploaded
+yet. Each network's result is written into the post's frontmatter, one key
+per network :
+
+```
+bluesky: https://bsky.app/profile/meitogi.bsky.social/post/3l…
+mastodon: failed 2026-11-03T09:00:12Z mastodon status : HTTP 401 The access token is invalid
+```
+
+A network that already holds a link is skipped (`--force`, or confirming in
+the page, posts again). A failure never stops the other networks ; the
+command exits 1 if any attempted network failed. `status` is left as it is.
+
+The command reads `.env` (gitignored) at the root of this repository ; the
+page keeps the same values in its Settings :
+
+| Variable | Page setting | Value |
+|---|---|---|
+| `BLUESKY_HANDLE` | Bluesky handle | `meitogi.bsky.social` |
+| `BLUESKY_APP_PASSWORD` | Bluesky app password | an app password, not the account password |
+| `MASTODON_URL` | Mastodon instance URL | `https://fosstodon.org` |
+| `MASTODON_TOKEN` | Mastodon token | scopes `write:statuses write:media read:accounts` |
+| `DISCORD_WEBHOOK` | Discord webhook URL | the channel's webhook URL |
+| `DEVTO_API_KEY` | — | Dev.to API key, not used yet |
+
 ## Scripts
 
 | Script | Does |
 |---|---|
 | `npm run ui` | the page and the local backend on `localhost:4173` |
-| `npm test` | `node --test` on the post logic and the backends |
+| `npm test` | `node --test` on the post logic, the backends and the publishing requests |
+| `npm run publish -- posts/<file>.md` | publish one post now to Bluesky, Mastodon, Discord (`--network`, `--force`) |
 | `npm run brand` | `assets/avatar-400.png`, `avatar-1024.png`, `banner-1500x500.png` from the SVGs in `assets/` (needs DejaVu Sans, as in `fonts-dejavu-core`) |
-| `npm run card`, `publish`, `due`, `review`, `linkedin:auth` | not built yet ; they exit 1 |
+| `npm run card`, `due`, `review`, `linkedin:auth` | not built yet ; they exit 1 |
 
 ## Layout
 
 ```
 index.html        the page : settings, list, editor, per-network preview
 lib/post.mjs      parse, serialize, render per network, slug
-lib/backends.mjs  local and GitHub backends : list, read, write, remove
+lib/publish.mjs   Bluesky, Mastodon, Discord requests, shared by page and CLI
+lib/backends.mjs  local and GitHub backends : list, read, write, remove, bytes
 scripts/ui.mjs    the local server
+scripts/publish.mjs  npm run publish
 scripts/brand.mjs profile images
 posts/            the queue ; posts/img/ for images
 published/        posts already out

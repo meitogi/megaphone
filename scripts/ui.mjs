@@ -1,6 +1,7 @@
 // `npm run ui` : the page plus a tiny posts/ backend on localhost:4173.
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
+//   GET /posts/img/<n>         → an image of posts/img/, read-only
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { readFile, writeFile, readdir, unlink } from 'node:fs/promises';
@@ -10,6 +11,8 @@ import { fileURLToPath } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8' };
 const NAME = /^[\w.-]+\.md$/;
+const IMAGES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
+const IMAGE = /^[\w-][\w.-]*\.(png|jpe?g|gif|webp)$/i;
 
 function body(req) {
   return new Promise((resolve, reject) => {
@@ -31,6 +34,13 @@ export function server({ root = ROOT, posts = join(root, 'posts') } = {}) {
       if (path === '/posts' && req.method === 'GET') {
         const names = (await readdir(posts)).filter((n) => NAME.test(n)).sort();
         return send(200, JSON.stringify(names.map((name) => ({ name }))), 'application/json');
+      }
+      if (path.startsWith('/posts/img/')) {
+        const name = path.slice(11);
+        const m = IMAGE.exec(name);
+        if (!m) return send(400, 'bad name');
+        if (req.method !== 'GET') return send(405, 'method not allowed');
+        return send(200, await readFile(join(posts, 'img', name)), IMAGES[m[1].toLowerCase()]);
       }
       if (path.startsWith('/posts/')) {
         const name = path.slice(7);

@@ -7,10 +7,13 @@ import { server } from '../scripts/ui.mjs';
 import { local, github } from '../lib/backends.mjs';
 
 let dir, srv, base;
+const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 255]);
 
 before(async () => {
   dir = await mkdtemp(join(tmpdir(), 'megaphone-'));
-  await mkdir(join(dir, 'posts'));
+  await mkdir(join(dir, 'posts', 'img'), { recursive: true });
+  await writeFile(join(dir, 'posts', 'img', 'cat.png'), PNG);
+  await writeFile(join(dir, 'posts', 'img', 'notes.txt'), 'nope');
   await mkdir(join(dir, 'lib'));
   await writeFile(join(dir, 'index.html'), '<h1>page</h1>');
   await writeFile(join(dir, 'lib', 'post.mjs'), 'export {};');
@@ -36,7 +39,7 @@ test('local backend : write, list, read, overwrite, remove on posts/', async () 
   await b.write('2026-11-03-hello.md', 'v2');
   assert.equal((await b.read('2026-11-03-hello.md')).text, 'v2');
   await b.remove('2026-11-03-hello.md');
-  assert.deepEqual(await readdir(join(dir, 'posts')), []);
+  assert.deepEqual((await readdir(join(dir, 'posts'))).filter((n) => n.endsWith('.md')), []);
   await assert.rejects(b.read('2026-11-03-hello.md'), /HTTP 404/);
 });
 
@@ -45,12 +48,24 @@ test('local server : list ignores non-Markdown files', async () => {
   assert.deepEqual(await local(base).list(), []);
 });
 
-test('local server : serves the page and lib/, nothing else', async () => {
+test('local server : serves the page, lib/ and the images of posts/img/, nothing else', async () => {
   assert.equal(await (await fetch(`${base}/`)).text(), '<h1>page</h1>');
   const lib = await fetch(`${base}/lib/post.mjs`);
   assert.match(lib.headers.get('content-type'), /javascript/);
+  const img = await fetch(`${base}/posts/img/cat.png`);
+  assert.equal(img.headers.get('content-type'), 'image/png');
   assert.equal((await fetch(`${base}/secret.txt`)).status, 404);
   assert.equal((await fetch(`${base}/lib/../secret.txt`)).status, 404);
+});
+
+test('local server : posts/img/ serves images read-only and refuses the rest', async () => {
+  assert.deepEqual(await local(base).bytes('img/cat.png'), PNG);
+  for (const name of ['notes.txt', '..%2Fsecret.png', '..%2F..%2Fsecret.txt', '.hidden.png', 'a%2Fb.png']) {
+    assert.equal((await fetch(`${base}/posts/img/${name}`)).status, 400, name);
+  }
+  assert.equal((await fetch(`${base}/posts/img/missing.png`)).status, 404);
+  assert.equal((await fetch(`${base}/posts/img/cat.png`, { method: 'PUT', body: 'x' })).status, 405);
+  assert.equal((await fetch(`${base}/posts/img/cat.png`, { method: 'DELETE' })).status, 405);
 });
 
 test('local server : refuses names outside posts/', async () => {
@@ -104,4 +119,17 @@ test('github backend : headers, base64 UTF-8 round-trip, sha on update and delet
   await b.remove('a.md', sha2);
   assert.equal(JSON.parse(calls.at(-1).init.body).sha, sha2);
   assert.deepEqual(files, {});
+});
+
+test('github backend : bytes() asks the raw media type for an image', async () => {
+  const calls = [];
+  const f = async (url, init) => {
+    calls.push({ url, init });
+    return new Response(PNG);
+  };
+  const b = github({ owner: 'meitogi', repo: 'megaphone', token: 'tok', fetch: f });
+  assert.deepEqual(await b.bytes('img/cat 1.png'), PNG);
+  assert.equal(calls[0].url, 'https://api.github.com/repos/meitogi/megaphone/contents/posts/img/cat%201.png');
+  assert.equal(calls[0].init.headers.Accept, 'application/vnd.github.raw+json');
+  assert.equal(calls[0].init.headers.Authorization, 'Bearer tok');
 });
