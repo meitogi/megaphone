@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Meitogi">
+  <!-- Avatar Meitogi — croissant de lumière sur acier sombre.
+       Fond  #161A20  bleu-noir désaturé (écart B−R = 10, le point « acier »)
+       Signe #D8DEE6  argent froid, jamais blanc pur
+
+       Construction : deux cercles de même rayon, l'un soustrait à l'autre.
+       Le décalage entre leurs centres donne À LA FOIS l'épaisseur du
+       croissant et son inclinaison — pas d'arc à régler à la main.
+
+         R  = 175   rayon des deux cercles (taille du croissant)
+         d  = 88    distance entre les centres = épaisseur max du croissant
+         30°        inclinaison : décalage (+44, −76.2) = d × (sin30, −cos30)
+
+       Pour épaissir      → rapproche le 2e centre de (256, 256)
+       Pour redresser     → change (44, −76.2) en gardant √(x²+y²) = 88
+       Pour la version claire → échange les deux couleurs -->
+
+  <defs>
+    <mask id="crescent">
+      <rect width="512" height="512" fill="#000"/>
+      <circle cx="256" cy="256"   r="175" fill="#fff"/>
+      <circle cx="300" cy="179.8" r="175" fill="#000"/>
+    </mask>
+  </defs>
+
+  <rect width="512" height="512" fill="#161A20"/>
+  <rect width="512" height="512" fill="#D8DEE6" mask="url(#crescent)"/>
+</svg>

@@ -1,0 +1,25 @@
+{
+  "name": "megaphone",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Write, preview, schedule and publish social posts on every network from one static page and a Git repo.",
+  "type": "module",
+  "license": "MIT",
+  "author": "meitogi",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "ui": "node scripts/ui.mjs",
+    "test": "node --test test/*.test.mjs",
+    "brand": "node scripts/brand.mjs",
+    "card": "node scripts/stub.mjs card 5",
+    "publish": "node scripts/stub.mjs publish 2",
+    "due": "node scripts/stub.mjs due 3",
+    "review": "node scripts/stub.mjs review 6",
+    "linkedin:auth": "node scripts/stub.mjs linkedin:auth 4"
+  },
+  "dependencies": {
+    "@resvg/resvg-wasm": "^2.6.2"
+  }
+}

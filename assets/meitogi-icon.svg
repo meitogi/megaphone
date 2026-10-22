@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="Meitogi">
+  <!-- Avatar Meitogi — abstraction du radical 石 (pierre) de 研 (togi, polir).
+       Trois éléments, poids de trait uniforme (52), angles nets :
+         1. l'horizontale supérieure   — le surplomb
+         2. la diagonale               — descend vers la gauche depuis l'horizontale
+         3. le carré                   — la pierre, abritée sous l'horizontale
+       Tout le mark tient dans le cercle inscrit (rayon max atteint : 207 / 256). -->
+
+  <rect width="512" height="512" fill="#F2EAE0"/>
+
+  <g fill="#B05B4C" stroke="#B05B4C" stroke-width="52" stroke-linecap="butt">
+    <!-- 1. horizontale -->
+    <rect x="100" y="120" width="312" height="52" stroke="none"/>
+    <!-- 2. diagonale : de sous l'horizontale (300,172) vers le bas-gauche -->
+    <line x1="300" y1="172" x2="130" y2="392"/>
+    <!-- 3. carré, en bas à droite -->
+    <rect x="282" y="252" width="130" height="130" stroke="none"/>
+  </g>
+</svg>
