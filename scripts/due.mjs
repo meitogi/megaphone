@@ -1,20 +1,21 @@
 // `npm run due` : what the hourly Action runs. Publishes every `ready` post of
 // posts/ whose `date` has passed, through `run()` of publish.mjs, then moves each
-// complete one to published/ with `status: published`. An incomplete post stays
-// `ready` in posts/ : the next run retries its failed networks and skips the
-// others, which already hold a success.
+// complete one to published/ with `status: published`. Complete = every network
+// of the post that this environment is configured for holds a success or a skip.
+// An incomplete post stays `ready` in posts/ : the next run retries its failed
+// networks and skips the others, which already hold a success.
 import { readFile, writeFile, readdir, rename } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parse, serialize, notDue, pending } from '../lib/post.mjs';
-import { ACTION } from '../lib/publish.mjs';
-import { run, NAME } from './publish.mjs';
+import { run, able, NAME } from './publish.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 // `dir` holds posts/ and published/. Returns the number of failed networks.
 export async function due({ dir = ROOT, now = Date.now(), env, fetch: f = fetch, sleep, log = console.log }) {
   const posts = join(dir, 'posts');
+  const configured = able(env);
   let failed = 0;
   for (const name of (await readdir(posts)).filter((n) => NAME.test(n)).sort()) {
     const file = join(posts, name);
@@ -28,7 +29,7 @@ export async function due({ dir = ROOT, now = Date.now(), env, fetch: f = fetch,
     failed += await run({ file, env, fetch: f, sleep, log: (line) => log(`  ${line}`) });
     // run() wrote the results : read them back.
     const post = parse(await readFile(file, 'utf8'));
-    const left = pending(post, ACTION);
+    const left = pending(post, configured);
     if (left.length) {
       log(`${name} : stays ready, retried next run (${left.join(', ')})`);
       continue;

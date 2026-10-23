@@ -53,7 +53,9 @@ test('publish.yml : no expression inside a run, inputs through env, secrets name
   assert.match(y, /^ {10}POST: \$\{\{ inputs\.post \}\}$/m);
   assert.match(y, /^ {10}NETWORK: \$\{\{ inputs\.network \}\}$/m);
   const used = [...y.matchAll(/^\s+(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)];
-  assert.deepEqual(used.map((m) => m[2]), ['BLUESKY_HANDLE', 'BLUESKY_APP_PASSWORD', 'MASTODON_URL', 'MASTODON_TOKEN', 'DEVTO_API_KEY', 'DISCORD_WEBHOOK']);
+  assert.deepEqual(used.map((m) => m[2]), ['BLUESKY_HANDLE', 'BLUESKY_APP_PASSWORD', 'MASTODON_URL', 'MASTODON_TOKEN', 'DEVTO_API_KEY', 'DISCORD_WEBHOOK',
+    'THREADS_USER_ID', 'THREADS_TOKEN', 'FB_PAGE_ID', 'FB_PAGE_TOKEN', 'IG_USER_ID', 'LINKEDIN_PERSON_URN', 'LINKEDIN_TOKEN']);
+  assert.equal(used.length, SECRETS.length);
   for (const [, env, secret] of used) {
     assert.equal(env, secret);
     assert.ok(SECRETS.includes(secret), secret);
@@ -61,6 +63,19 @@ test('publish.yml : no expression inside a run, inputs through env, secrets name
   assert.equal([...y.matchAll(/secrets\./g)].length, used.length);
   const publish = bodies.find((b) => b.includes('npm run due'));
   assert.match(publish, /node scripts\/publish\.mjs "posts\/\$POST" --network "\$NETWORK"/);
+});
+
+test('refresh-tokens.yml : weekly cron and dispatch, no permissions, secrets through env, the token PAT as GH_TOKEN', async () => {
+  const y = await read('refresh-tokens.yml');
+  assert.match(y, /^ {2}schedule:\n {4}- cron: '23 6 \* \* 1'\n {2}workflow_dispatch:$/m);
+  assert.match(y, /^permissions: \{\}$/m);
+  assert.match(y, /^ {6}- uses: actions\/setup-node@v7\n {8}with:\n {10}node-version: 24$/m);
+  const used = [...y.matchAll(/^\s+(\w+): \$\{\{ secrets\.(\w+) \}\}$/gm)].map((m) => [m[1], m[2]]);
+  assert.deepEqual(used, [['THREADS_TOKEN', 'THREADS_TOKEN'], ['LINKEDIN_TOKEN', 'LINKEDIN_TOKEN'], ['LINKEDIN_EXPIRES', 'LINKEDIN_EXPIRES'], ['GH_TOKEN', 'GH_PAT']]);
+  assert.equal([...y.matchAll(/secrets\./g)].length, used.length);
+  const bodies = runs(y);
+  assert.deepEqual(bodies, ['npm ci', 'node scripts/refresh.mjs']);
+  for (const b of bodies) assert.ok(!b.includes('${{'), b);
 });
 
 test('pages.yml : tests, the allowlisted site, the pages group', async () => {

@@ -135,7 +135,7 @@ test('instagram : skipped without image, kept with one', () => {
   const r = render(post({}, 'Hi.'), 'instagram');
   assert.equal(r.skipped, true);
   assert.deepEqual(r.warnings, ['instagram : no image, skipped']);
-  const ok = render(post({ image: 'img/a.png', alt: 'A cat' }, 'Hi.'), 'instagram');
+  const ok = render(post({ image: 'img/a.jpg', alt: 'A cat' }, 'Hi.'), 'instagram');
   assert.equal(ok.skipped, false);
   assert.deepEqual(ok.warnings, []);
 });
@@ -149,10 +149,13 @@ for (const network of ['discord', 'devto']) {
   });
 }
 
-test('image without alt warns on every network', () => {
-  for (const n of ['bluesky', 'mastodon', 'linkedin', 'instagram', 'discord']) {
+test('image without alt warns on every network ; instagram also wants a JPEG', () => {
+  for (const n of ['bluesky', 'mastodon', 'linkedin', 'discord']) {
     assert.deepEqual(render(post({ image: 'img/a.png' }, 'Hi.'), n).warnings, ['image without alt text']);
   }
+  assert.deepEqual(render(post({ image: 'img/a.png' }, 'Hi.'), 'instagram').warnings, ['instagram : JPEG only', 'image without alt text']);
+  assert.deepEqual(render(post({ image: 'img/a.JPG', alt: 'x' }, 'Hi.'), 'instagram').warnings, []);
+  assert.deepEqual(render(post({ image: 'img/a.jpeg', alt: 'x' }, 'Hi.'), 'instagram').skipped, false);
 });
 
 test('PurrPause guard-rail : forbidden words warn, named in text, tags or title', () => {
@@ -197,6 +200,11 @@ test('pending : the able networks without a success, `all` expanded', () => {
   assert.deepEqual(pending({ meta }, able), []);
   assert.deepEqual(pending({ meta: { networks: 'all', discord: 'ok 42' } }, able), ['bluesky', 'mastodon']);
   assert.deepEqual(pending({ meta: { networks: ['x', 'threads'] } }, able), []);
+  // A skip is not a success, but nothing to wait for either.
+  const four = ['threads', 'facebook', 'instagram', 'linkedin'];
+  assert.deepEqual(pending({ meta: { networks: 'all', instagram: 'skipped no image' } }, four), ['threads', 'linkedin', 'facebook']);
+  assert.deepEqual(pending({ meta: { networks: 'all', instagram: 'failed 2026-11-03T09:00:00Z instagram : JPEG only' } }, four), ['threads', 'linkedin', 'facebook', 'instagram']);
+  assert.deepEqual(pending({ meta: { networks: 'all', threads: 'ok 1', facebook: 'https://www.facebook.com/1_2', instagram: 'skipped no image', linkedin: 'https://www.linkedin.com/feed/update/urn:li:share:1/' } }, four), []);
 });
 
 // --- intents --------------------------------------------------------------------------

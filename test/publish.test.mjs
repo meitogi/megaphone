@@ -271,12 +271,13 @@ test('cli : a 401 from each network is recorded, the others still run, exit coun
     assert.equal(meta.status, 'draft');
     const text = await readFile(file, 'utf8');
     assert.ok(!text.includes('hook-secret-token'));
-    assert.deepEqual(lines.filter((l) => l.includes('not built yet')), [
-      'threads : not built yet, session 4',
-      'linkedin : not built yet, session 4',
-      'facebook : not built yet, session 4',
-      'instagram : not built yet, session 4',
+    assert.deepEqual(lines.filter((l) => l.includes('not configured')), [
+      'threads : not configured, skipped',
+      'linkedin : not configured, skipped',
+      'facebook : not configured, skipped',
+      'instagram : not configured, skipped',
     ]);
+    assert.deepEqual(Object.keys(meta), ['networks', 'status', 'bluesky', 'mastodon', 'discord']);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -369,7 +370,7 @@ test('devto : no title, no key → no call', async () => {
   await assert.rejects(publish(p, 'devto', { creds: DEVTO_CREDS, fetch: f }), /^Error: devto : needs a title$/);
   await assert.rejects(publish(devtoPost(), 'devto', { creds: {}, fetch: f }), /^Error: devto : missing Dev\.to API key$/);
   assert.equal(calls.length, 0);
-  assert.deepEqual(ACTION, ['bluesky', 'mastodon', 'discord', 'devto']);
+  assert.deepEqual(ACTION, ['bluesky', 'mastodon', 'discord', 'devto', 'threads', 'facebook', 'instagram', 'linkedin']);
 });
 
 test('cli : devto publishes from DEVTO_API_KEY, the key never in a failed line, x is manual', async () => {

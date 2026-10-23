@@ -1,16 +1,17 @@
 // `npm run publish -- posts/<file>.md [--network <name>] [--force]`
-// Publishes one post now to its networks among Bluesky, Mastodon, Discord and
-// Dev.to, writes each result into the file's frontmatter, prints one line per
-// network. Credentials from `.env`, or the environment (the Action).
+// Publishes one post now to its networks among Bluesky, Mastodon, Discord, Dev.to,
+// Threads, Facebook, Instagram and LinkedIn, writes each result into the file's
+// frontmatter, prints one line per network. Credentials from `.env`, or the
+// environment (the Action). A network with none of its credentials is not in use :
+// skipped, nothing written. Instagram without an image is set aside as
+// `skipped no image`.
 import { readFile, writeFile } from 'node:fs/promises';
 import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parse, serialize, expandNetworks, posted, record, NETWORKS } from '../lib/post.mjs';
-import { ACTION, publish, loadImage } from '../lib/publish.mjs';
+import { parse, serialize, render, expandNetworks, posted, record, NETWORKS } from '../lib/post.mjs';
+import { ACTION, configured, publish, loadImage } from '../lib/publish.mjs';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-// The session that builds each of the other networks.
-const LATER = { threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
 export const NAME = /^[\w.-]+\.md$/;
 
 export function creds(env) {
@@ -21,7 +22,20 @@ export function creds(env) {
     mastoToken: env.MASTODON_TOKEN,
     discordWebhook: env.DISCORD_WEBHOOK,
     devtoKey: env.DEVTO_API_KEY,
+    threadsUserId: env.THREADS_USER_ID,
+    threadsToken: env.THREADS_TOKEN,
+    fbPageId: env.FB_PAGE_ID,
+    fbPageToken: env.FB_PAGE_TOKEN,
+    igUserId: env.IG_USER_ID,
+    linkedinPersonUrn: env.LINKEDIN_PERSON_URN,
+    linkedinToken: env.LINKEDIN_TOKEN,
   };
+}
+
+// The networks this environment publishes to : what `pending()` may wait for.
+export function able(env) {
+  const c = creds(env);
+  return ACTION.filter((n) => configured(n, c));
 }
 
 // Returns the number of attempted networks that failed.
@@ -34,7 +48,11 @@ export async function run({ file, networks, force = false, env, fetch: f = fetch
   let failed = 0;
   for (const n of networks || expandNetworks(post.meta.networks)) {
     if (!ACTION.includes(n)) {
-      log(n === 'x' ? 'x : manual, Compose in the page' : `${n} : not built yet, session ${LATER[n] || '?'}`);
+      log(n === 'x' ? 'x : manual, Compose in the page' : `${n} : not a network publish() reaches`);
+      continue;
+    }
+    if (!configured(n, c)) {
+      log(`${n} : not configured, skipped`);
       continue;
     }
     const done = posted(post, n);
@@ -42,17 +60,26 @@ export async function run({ file, networks, force = false, env, fetch: f = fetch
       log(`${n} : already published ${done} (--force to post again)`);
       continue;
     }
-    try {
-      image ??= loadImage(post, async (p) => new Uint8Array(await readFile(join(dirname(file), p))));
-      const result = await publish(post, n, { creds: c, image: await image, name, repository: env.GITHUB_REPOSITORY, fetch: f, sleep });
-      record(post, n, result);
-    } catch (e) {
-      record(post, n, { error: e.message }, secrets);
-      failed++;
+    let note = null;
+    if (render(post, n).skipped) {
+      // Instagram without an image : set aside, not failed. A later image is
+      // picked up, since `skipped` is not a success.
+      post.meta[n] = 'skipped no image';
+    } else {
+      try {
+        image ??= loadImage(post, async (p) => new Uint8Array(await readFile(join(dirname(file), p))));
+        const result = await publish(post, n, { creds: c, image: await image, name, repository: env.GITHUB_REPOSITORY, fetch: f, sleep });
+        record(post, n, result);
+        note = result.note || null;
+      } catch (e) {
+        record(post, n, { error: e.message }, secrets);
+        failed++;
+      }
     }
     // Written after each network, so a crash never forgets a post that went out.
     await writeFile(file, serialize(post));
     log(`${n} : ${post.meta[n]}`);
+    if (note) log(`${n} : published, but ${note}`);
   }
   return failed;
 }

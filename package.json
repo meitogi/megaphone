@@ -17,7 +17,9 @@
     "publish": "node scripts/publish.mjs",
     "due": "node scripts/due.mjs",
     "review": "node scripts/stub.mjs review 6",
-    "linkedin:auth": "node scripts/stub.mjs linkedin:auth 4"
+    "refresh": "node scripts/refresh.mjs",
+    "linkedin:auth": "node scripts/linkedin-auth.mjs",
+    "meta:auth": "node scripts/meta-auth.mjs"
   },
   "dependencies": {
     "@resvg/resvg-wasm": "^2.6.2"

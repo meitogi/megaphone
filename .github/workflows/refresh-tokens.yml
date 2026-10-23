@@ -1,0 +1,30 @@
+# Every Monday : renews the Threads token (60 days, refreshable after 24 hours)
+# and writes it back to the THREADS_TOKEN secret with gh ; warns ten days before
+# the LinkedIn token expires by failing the run, which is GitHub's email. The logic
+# lives in scripts/refresh.mjs ; secrets reach it through env only.
+name: refresh-tokens
+
+on:
+  schedule:
+    - cron: '23 6 * * 1'
+  workflow_dispatch:
+
+permissions: {}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Refresh
+        env:
+          THREADS_TOKEN: ${{ secrets.THREADS_TOKEN }}
+          LINKEDIN_TOKEN: ${{ secrets.LINKEDIN_TOKEN }}
+          LINKEDIN_EXPIRES: ${{ secrets.LINKEDIN_EXPIRES }}
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: node scripts/refresh.mjs

@@ -150,7 +150,7 @@
 <script type="module">
 import { parse, serialize, render, slug, expandNetworks, posted, record, intent, NETWORKS, STATUSES } from './lib/post.mjs';
 import { local, github } from './lib/backends.mjs';
-import { ACTION, SETTINGS, missing, publish, loadImage } from './lib/publish.mjs';
+import { DIRECT, ACTION, SETTINGS, missing, publish, loadImage } from './lib/publish.mjs';
 
 const KEY = 'megaphone.settings';
 const FIELDS = ['date', 'networks', 'image', 'alt', 'tags', 'link', 'title', 'sub', 'status'];
@@ -397,8 +397,8 @@ function renderPreview() {
     btn.textContent = 'Publish';
     const why = blocker(n, r);
     btn.disabled = Boolean(why);
-    btn.title = why || (n === 'devto' ? 'Run publish.yml for devto on this post' : `Publish to ${n} now`);
-    btn.addEventListener('click', () => (n === 'devto' ? dispatchNow(btn) : publishNow(n, btn)));
+    btn.title = why || (DISPATCH.includes(n) ? `Run publish.yml for ${n} on this post` : `Publish to ${n} now`);
+    btn.addEventListener('click', () => (DISPATCH.includes(n) ? dispatchNow(n, btn) : publishNow(n, btn)));
     head.append(name, count, btn);
     let it = null;
     if (COMPOSE.includes(n)) {
@@ -454,17 +454,20 @@ function copyRow(label, text) {
 
 // --- publish now (Bluesky, Mastodon, Discord) -------------------------------
 
-const LATER = { threads: 4, linkedin: 4, facebook: 4, instagram: 4 };
+// The networks the Action publishes and the browser cannot (no CORS) : their
+// Publish button dispatches publish.yml instead.
+const DISPATCH = ACTION.filter((n) => !DIRECT.includes(n));
 
 // Why `network` cannot be published right now, or null.
 function blocker(network, r) {
   if (network === 'x') return 'No API : use Compose';
-  if (!ACTION.includes(network)) return `session ${LATER[network]}`;
   if (!current.name) return 'Save the post first';
   if (serialize(current.post) !== saved) return 'Unsaved changes : save first';
-  if (network === 'devto') {
+  if (DISPATCH.includes(network)) {
+    if (r.skipped) return 'No image : Instagram skips this post';
+    if (r.warnings.includes('instagram : JPEG only')) return 'Instagram takes JPEG only : use a .jpg image';
     if (settings.backend !== 'github') return 'Needs the github backend : the Action publishes from main';
-    if (!current.post.meta.title) return 'Needs a title';
+    if (network === 'devto' && !current.post.meta.title) return 'Needs a title';
     return null;
   }
   const lacks = missing(network, settings);
@@ -505,16 +508,16 @@ async function publishNow(network, btn) {
   }
 }
 
-// --- Dev.to, through the Action -----------------------------------------------
+// --- Dev.to, Threads, Facebook, Instagram, LinkedIn : through the Action --------
 
-async function dispatchNow(btn) {
-  const done = posted(current.post, 'devto');
-  if (done && !confirm(`Already published to devto :\n${done}\n\nThe Action skips it unless the key is removed. Dispatch anyway ?`)) return;
+async function dispatchNow(network, btn) {
+  const done = posted(current.post, network);
+  if (done && !confirm(`Already published to ${network} :\n${done}\n\nThe Action skips it unless the key is removed. Dispatch anyway ?`)) return;
   btn.disabled = true;
-  say('Dispatching publish.yml for devto…');
+  say(`Dispatching publish.yml for ${network}…`);
   try {
-    await backend().dispatch({ post: current.name, network: 'devto' });
-    say('Dispatched publish.yml for devto : reload in a minute');
+    await backend().dispatch({ post: current.name, network });
+    say(`Dispatched publish.yml for ${network} : reload in a minute`);
   } catch (e) {
     say(e.message, true);
   }
