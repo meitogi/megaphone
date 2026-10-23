@@ -47,7 +47,7 @@ test('refresh : Threads token refreshed through th_refresh_token, masked, then s
     assert.equal(calls.length, 1);
     const u = new URL(calls[0].url);
     assert.equal(calls[0].method, 'GET');
-    assert.equal(`${u.origin}${u.pathname}`, 'https://graph.threads.net/refresh_access_token');
+    assert.equal(`${u.origin}${u.pathname}`, 'https://graph.threads.com/refresh_access_token');
     assert.deepEqual(Object.fromEntries(u.searchParams), { grant_type: 'th_refresh_token', access_token: 'old-th-tok' });
     assert.deepEqual(masked, ['new-th-tok']);
     assert.equal(await read('argv'), 'secret set THREADS_TOKEN -R meitogi/megaphone');

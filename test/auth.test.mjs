@@ -51,8 +51,8 @@ test('linkedin exchange and userinfo : form-encoded token request, 60-day expiry
 test('meta exchanges : th_exchange_token and /me, fb_exchange_token and the pages with their Instagram account', async () => {
   const { f, calls } = fakeFetch((req) => {
     const u = new URL(req.url);
-    if (u.host === 'graph.threads.net' && u.pathname === '/access_token') return Response.json({ access_token: 'th-long', token_type: 'bearer', expires_in: 5183944 });
-    if (u.host === 'graph.threads.net' && u.pathname === '/v1.0/me') return Response.json({ id: '17841400', username: 'meitogi' });
+    if (u.host === 'graph.threads.com' && u.pathname === '/access_token') return Response.json({ access_token: 'th-long', token_type: 'bearer', expires_in: 5183944 });
+    if (u.host === 'graph.threads.com' && u.pathname === '/v1.0/me') return Response.json({ id: '17841400', username: 'meitogi' });
     if (u.pathname === '/v26.0/oauth/access_token') return Response.json({ access_token: 'fb-long', token_type: 'bearer', expires_in: 5183944 });
     if (u.pathname === '/v26.0/me/accounts') return Response.json({ data: [{ id: '1234', name: 'Meitogi', access_token: 'page-tok', instagram_business_account: { id: '9876' } }, { id: '555', name: 'Other', access_token: 'other-tok' }] });
     return new Response('?', { status: 500 });

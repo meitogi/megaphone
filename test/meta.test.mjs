@@ -43,11 +43,11 @@ test('threads : image container by raw URL, polled, published, permalink ; token
   const result = await publish(post(), 'threads', { creds: CREDS, image: JPG, fetch: f, repository: REPO, sleep: async (ms) => slept.push(ms) });
   assert.deepEqual(result, { url: 'https://www.threads.net/@meitogi/post/ABC' });
   assert.deepEqual(trail(calls), [
-    'POST graph.threads.net/v1.0/17841400/threads',
-    'GET graph.threads.net/v1.0/c1',
-    'GET graph.threads.net/v1.0/c1',
-    'POST graph.threads.net/v1.0/17841400/threads_publish',
-    'GET graph.threads.net/v1.0/m1',
+    'POST graph.threads.com/v1.0/17841400/threads',
+    'GET graph.threads.com/v1.0/c1',
+    'GET graph.threads.com/v1.0/c1',
+    'POST graph.threads.com/v1.0/17841400/threads_publish',
+    'GET graph.threads.com/v1.0/m1',
   ]);
   for (const c of calls) {
     assert.equal(token(c), 'th-secret-token');
@@ -59,7 +59,7 @@ test('threads : image container by raw URL, polled, published, permalink ; token
   assert.equal(new URL(calls[1].url).searchParams.get('fields'), 'status,error_message');
   assert.deepEqual(await form(calls[3]), { creation_id: 'c1' });
   assert.equal(new URL(calls[4].url).searchParams.get('fields'), 'permalink');
-  assert.equal(THREADS, 'https://graph.threads.net/v1.0');
+  assert.equal(THREADS, 'https://graph.threads.com/v1.0');
 });
 
 test('threads : text only needs no repository ; an image without one is refused before any call', async () => {

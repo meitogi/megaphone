@@ -159,7 +159,7 @@ function allRoutes(down = []) {
     if (u.host === 'bsky.social') return path.endsWith('createSession') ? Response.json({ accessJwt: 'jwt', did: 'did:plc:a', handle: 'meitogi.bsky.social' }) : Response.json({ uri: 'at://did:plc:a/app.bsky.feed.post/r1' });
     if (u.host === 'fosstodon.org') return Response.json({ id: 's1', url: 'https://fosstodon.org/@meitogi/111' });
     if (u.host === 'discord.com') return Response.json({ id: '9', channel_id: '8', guild_id: '7' });
-    if (u.host === 'graph.threads.net') {
+    if (u.host === 'graph.threads.com') {
       if (down.includes('threads')) return Response.json({ error: { message: 'Session has expired', type: 'OAuthException', code: 190 } }, { status: 401 });
       if (path.endsWith('/threads')) return Response.json({ id: 'c1' });
       if (path.endsWith('/c1')) return Response.json({ status: 'FINISHED' });
