@@ -275,12 +275,35 @@ any other file in `lib/` fails the build. Once, on GitHub : Settings → Pages
 → Source : « GitHub Actions ». The page is then at
 `https://<owner>.github.io/megaphone/`.
 
+## Reddit Scout
+
+A userscript for reddit.com, in your logged-in browser, to earn karma the
+honest way : answer questions you know. It never posts.
+
+- **Scout** lists the threads of the last 24 h on r/ClaudeAI, r/ClaudeCode,
+  r/devcontainers, r/docker, r/emulation, r/WebAssembly and r/vscode that
+  have at most 5 comments and match your topics (devcontainers and
+  firewalls, Claude Code hooks and permissions, VS Code, WebAssembly
+  ports), best first. « fait » hides a thread for 7 days.
+- **Brouillon**, on a thread page, sends the post and its top 8 comments
+  to `POST /reddit/draft` on `npm run ui` ; the server runs `claude -p`
+  (no tools, your Claude subscription : `ANTHROPIC_API_KEY` is dropped from
+  its env) with [prompts/reddit-reply.md](prompts/reddit-reply.md) and the
+  draft comes back with a Copy button. `SKIP: …` means nothing solid to add.
+  Read it, make it yours, post it yourself.
+
+Install : Tampermonkey or Violentmonkey → new script → paste
+[userscripts/reddit-scout.user.js](userscripts/reddit-scout.user.js). For
+Brouillon : `npm run ui` running and port 4173 forwarded to the host (VS Code,
+Ports panel). Subreddits, topics and thresholds are constants at the top of
+the script.
+
 ## Scripts
 
 | Script | Does |
 |---|---|
 | `npm run ui` | the page and the local backend on `localhost:4173` |
-| `npm test` | `node --test` on the post logic, the backends, the publishing requests, the schedule, the site build and the workflows |
+| `npm test` | `node --test` on the post logic, the backends, the publishing requests, the schedule, the site build, the workflows and Reddit Scout |
 | `npm run publish -- posts/<file>.md` | publish one post now to Bluesky, Mastodon, Discord, Dev.to (`--network`, `--force`) |
 | `npm run due` | publish every due `ready` post, move the complete ones to `published/` |
 | `npm run meta:auth` | the Meta token exchanges : Threads, the Facebook page, Instagram → `.env`, Actions secrets |
@@ -300,7 +323,7 @@ lib/meta.mjs      Threads, Facebook page, Instagram (Graph APIs)
 lib/linkedin.mjs  LinkedIn Posts, Images and Comments APIs
 lib/http.mjs      the error line and the follow-up rule the senders share
 lib/backends.mjs  local and GitHub backends : list, read, write, remove, bytes ; dispatch
-scripts/ui.mjs    the local server
+scripts/ui.mjs    the local server ; POST /reddit/draft for Reddit Scout
 scripts/publish.mjs  npm run publish
 scripts/due.mjs   npm run due
 scripts/meta-auth.mjs, linkedin-auth.mjs  the token wizards ; wizard.mjs their shared parts
@@ -313,6 +336,8 @@ published/        posts already out
 ideas.md          one line per post idea
 metrics.md        one line per month
 assets/           brand sources and renders
+prompts/          reddit-reply.md, the Reddit Scout draft prompt
+userscripts/      reddit-scout.user.js
 ```
 
 ## Publishing this repository

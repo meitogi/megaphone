@@ -2,8 +2,10 @@
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
+//   POST /reddit/draft         → { draft } : a reply drafted by `claude -p` for Reddit Scout
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
+import { spawn } from 'node:child_process';
 import { readFile, writeFile, readdir, unlink } from 'node:fs/promises';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +15,7 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
 const NAME = /^[\w.-]+\.md$/;
 const IMAGES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 const IMAGE = /^[\w-][\w.-]*\.(png|jpe?g|gif|webp)$/i;
+const MAX_THREAD = 64 * 1024;
 
 function body(req) {
   return new Promise((resolve, reject) => {
@@ -23,7 +26,32 @@ function body(req) {
   });
 }
 
-export function server({ root = ROOT, posts = join(root, 'posts') } = {}) {
+// The thread as the user message of the draft : what the prompt says comes in.
+export function thread({ sub, title, body, url, comments = [] }) {
+  const lines = [`r/${sub} — ${url}`, '', `Title: ${title}`, '', body || '(no body)', '', 'Top comments:'];
+  if (!comments.length) lines.push('(none yet)');
+  for (const c of comments) lines.push('', `u/${c.author} (${c.score} points):`, c.body);
+  return lines.join('\n');
+}
+
+// `claude -p` without tools on the Max subscription : the API key is dropped from the env.
+export function claude(input, { root = ROOT, run = spawn } = {}) {
+  const args = ['-p', '--tools', '', '--no-session-persistence', '--system-prompt-file', join(root, 'prompts', 'reddit-reply.md')];
+  const env = { ...process.env };
+  delete env.ANTHROPIC_API_KEY;
+  return new Promise((resolve, reject) => {
+    const child = run('claude', args, { env, stdio: ['pipe', 'pipe', 'pipe'] });
+    let out = '';
+    let err = '';
+    child.stdout.on('data', (c) => (out += c));
+    child.stderr.on('data', (c) => (err += c));
+    child.on('error', reject);
+    child.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(`claude exited ${code} : ${err.trim() || out.trim()}`))));
+    child.stdin.end(input);
+  });
+}
+
+export function server({ root = ROOT, posts = join(root, 'posts'), draft = (input) => claude(input, { root }) } = {}) {
   return createServer(async (req, res) => {
     const send = (code, data, type = 'text/plain; charset=utf-8') => {
       res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -31,6 +59,14 @@ export function server({ root = ROOT, posts = join(root, 'posts') } = {}) {
     };
     try {
       const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
+      if (path === '/reddit/draft') {
+        if (req.method !== 'POST') return send(405, 'method not allowed');
+        const text = await body(req);
+        if (text.length > MAX_THREAD) return send(413, 'thread too large');
+        const t = JSON.parse(text);
+        if (!t.title || !t.sub) return send(400, 'title and sub required');
+        return send(200, JSON.stringify({ draft: await draft(thread(t)) }), 'application/json');
+      }
       if (path === '/posts' && req.method === 'GET') {
         const names = (await readdir(posts)).filter((n) => NAME.test(n)).sort();
         return send(200, JSON.stringify(names.map((name) => ({ name }))), 'application/json');

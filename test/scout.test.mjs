@@ -1,0 +1,126 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
+import vm from 'node:vm';
+import { server, thread, claude } from '../scripts/ui.mjs';
+
+// The userscript's pure half, loaded as Tampermonkey would minus the page : no `document`, so main() never runs.
+const src = await readFile(new URL('../userscripts/reddit-scout.user.js', import.meta.url), 'utf8');
+const raw = vm.runInNewContext(`${src}\n;({ score, pick, threadOf })`, {});
+// Objects built in the vm realm carry its prototypes : bring them back as plain data.
+const plain = (fn) => (...args) => JSON.parse(JSON.stringify(fn(...args)));
+const score = plain(raw.score);
+const pick = plain(raw.pick);
+const threadOf = plain(raw.threadOf);
+
+const NOW = Date.parse('2026-10-28T12:00:00Z');
+const post = (over) => ({ data: { id: 'a1', subreddit: 'ClaudeAI', title: 'x', selftext: '', permalink: '/r/ClaudeAI/comments/a1/x/', author: 'someone', created_utc: NOW / 1000 - 3600, num_comments: 0, locked: false, stickied: false, ...over } });
+
+test('score : title hits count double, question bonus, themes listed once', () => {
+  assert.deepEqual(score({ title: 'How do I lock down a devcontainer firewall?', selftext: '' }), { score: 3 * 2 + 2 * 2 + 2, topics: ['sandbox'] });
+  assert.deepEqual(score({ title: 'My setup', selftext: 'claude code hooks in settings.json' }), { score: 1 + 2 + 2, topics: ['claude-code'] });
+  assert.deepEqual(score({ title: 'Look at my cat', selftext: 'so cute?' }), { score: 0, topics: [] });
+  assert.equal(score({ title: 'webgl2 port', selftext: '', link_flair_text: 'Help' }).score, 2 * 2 + 2);
+});
+
+test('score : whole words only', () => {
+  assert.equal(score({ title: 'sandboxed', selftext: 'hookup' }).score, 0);
+  assert.equal(score({ title: 'the ctr-mod thing', selftext: '' }).score, 0);
+  assert.equal(score({ title: 'CTR on PC', selftext: '' }).score, 2);
+});
+
+test('pick : drops old, busy, locked, pinned, mine and done ; best first ; URL and fields kept', () => {
+  const listing = { data: { children: [
+    post({ id: 'low', title: 'docker question' }),
+    post({ id: 'top', title: 'devcontainer firewall egress', permalink: '/r/docker/comments/top/t/', subreddit: 'docker', num_comments: 2 }),
+    post({ id: 'old', title: 'devcontainer', created_utc: NOW / 1000 - 25 * 3600 }),
+    post({ id: 'busy', title: 'devcontainer', num_comments: 6 }),
+    post({ id: 'locked', title: 'devcontainer', locked: true }),
+    post({ id: 'pinned', title: 'devcontainer', stickied: true }),
+    post({ id: 'mine', title: 'devcontainer', author: 'meitogi' }),
+    post({ id: 'done', title: 'devcontainer' }),
+    post({ id: 'off', title: 'my cat' }),
+  ] } };
+  const rows = pick(listing, NOW, { done: NOW }, 'meitogi');
+  assert.deepEqual(rows.map((r) => r.id), ['top', 'low']);
+  assert.deepEqual(rows[0], { id: 'top', sub: 'docker', title: 'devcontainer firewall egress', url: 'https://www.reddit.com/r/docker/comments/top/t/', age: 3600, comments: 2, score: 14, topics: ['sandbox'] });
+});
+
+test('threadOf : post, then top-level comments without stickies or « more », capped', () => {
+  const c = (i, over) => ({ kind: 't1', data: { author: `u${i}`, score: 10 - i, body: `body ${i}`, stickied: false, ...over } });
+  const json = [
+    { data: { children: [{ data: { subreddit: 'ClaudeAI', title: 'Q', selftext: 'details', permalink: '/r/ClaudeAI/comments/a1/q/' } }] } },
+    { data: { children: [c(0, { stickied: true }), c(1), { kind: 'more', data: {} }, c(2), c(3, { body: 'x'.repeat(2000) })] } },
+  ];
+  const t = threadOf(json, 2);
+  assert.deepEqual(t, { sub: 'ClaudeAI', title: 'Q', body: 'details', url: 'https://www.reddit.com/r/ClaudeAI/comments/a1/q/', comments: [{ author: 'u1', score: 9, body: 'body 1' }, { author: 'u2', score: 8, body: 'body 2' }] });
+  assert.equal(threadOf(json).comments[2].body.length, 1500);
+});
+
+test('thread : the user message carries sub, URL, title, body and every comment', () => {
+  const text = thread({ sub: 'docker', title: 'T?', body: 'B', url: 'https://r/x', comments: [{ author: 'a', score: 3, body: 'C1' }, { author: 'b', score: 1, body: 'C2' }] });
+  assert.equal(text, 'r/docker — https://r/x\n\nTitle: T?\n\nB\n\nTop comments:\n\nu/a (3 points):\nC1\n\nu/b (1 points):\nC2');
+  assert.match(thread({ sub: 's', title: 't', url: 'u' }), /\(no body\)\n\nTop comments:\n\(none yet\)$/);
+});
+
+test('POST /reddit/draft : the thread reaches the drafter, its answer comes back ; bad input refused', async () => {
+  const seen = [];
+  const srv = server({ draft: async (input) => (seen.push(input), 'Use `--network none`.') });
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${srv.address().port}/reddit/draft`;
+  try {
+    const t = { sub: 'docker', title: 'T', body: 'B', url: 'U', comments: [] };
+    const res = await fetch(url, { method: 'POST', body: JSON.stringify(t) });
+    assert.equal(res.status, 200);
+    assert.deepEqual(await res.json(), { draft: 'Use `--network none`.' });
+    assert.deepEqual(seen, [thread(t)]);
+    assert.equal((await fetch(url)).status, 405);
+    assert.equal((await fetch(url, { method: 'POST', body: '{"sub":"x"}' })).status, 400);
+    assert.equal((await fetch(url, { method: 'POST', body: JSON.stringify({ ...t, body: 'x'.repeat(70000) }) })).status, 413);
+    assert.equal(seen.length, 1);
+  } finally {
+    await new Promise((r) => srv.close(r));
+  }
+});
+
+function fakeSpawn(code, stdout, stderr = '') {
+  const calls = [];
+  const run = (cmd, args, opts) => {
+    const child = new EventEmitter();
+    child.stdout = new PassThrough();
+    child.stderr = new PassThrough();
+    child.stdin = new PassThrough();
+    let input = '';
+    child.stdin.on('data', (c) => (input += c));
+    child.stdin.on('end', () => {
+      calls.push({ cmd, args, env: opts.env, input });
+      child.stdout.end(stdout);
+      child.stderr.end(stderr);
+      setImmediate(() => child.emit('close', code));
+    });
+    return child;
+  };
+  return { run, calls };
+}
+
+test('claude : -p without tools, the prompt file, input on stdin, no API key in the env', async () => {
+  process.env.ANTHROPIC_API_KEY = 'sk-test';
+  try {
+    const { run, calls } = fakeSpawn(0, '  Draft text\n');
+    assert.equal(await claude('the thread', { root: '/app', run }), 'Draft text');
+    assert.equal(calls[0].cmd, 'claude');
+    assert.deepEqual(calls[0].args, ['-p', '--tools', '', '--no-session-persistence', '--system-prompt-file', '/app/prompts/reddit-reply.md']);
+    assert.equal(calls[0].input, 'the thread');
+    assert.equal('ANTHROPIC_API_KEY' in calls[0].env, false);
+    assert.equal(calls[0].env.PATH, process.env.PATH);
+  } finally {
+    delete process.env.ANTHROPIC_API_KEY;
+  }
+});
+
+test('claude : a non-zero exit rejects with its stderr', async () => {
+  const { run } = fakeSpawn(1, '', 'not logged in');
+  await assert.rejects(claude('x', { run }), /claude exited 1 : not logged in/);
+});
