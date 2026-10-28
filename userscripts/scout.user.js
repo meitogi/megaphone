@@ -15,7 +15,8 @@
 
 // Edit these to taste ; the script reloads with the page.
 const SUBS = ['ClaudeAI', 'ClaudeCode', 'devcontainers', 'docker', 'emulation', 'WebAssembly', 'vscode'];
-const REDDIT = { maxAgeH: 24, maxComments: 5 };
+// Under an hour old, a post may still be pulled by the mods or the spam filter : wait until it has held.
+const REDDIT = { minAgeH: 1, maxAgeH: 24, maxComments: 5 };
 // HN threads stay open longer and a busy one is still worth joining ; points ≥ 3 drops the dead ones.
 const HN = { maxAgeH: 36, maxComments: 40, minPoints: 3 };
 const SHOWN = 15;
@@ -60,13 +61,14 @@ function score(post) {
 
 const best = (out) => out.sort((a, b) => b.score - a.score).slice(0, SHOWN);
 
-// The Reddit posts worth a reply, best first : recent, few comments, open, not mine, not done.
+// The Reddit posts worth a reply, best first : an hour to a day old, still up, few comments, open, not mine, not done.
 function pick(listing, now, done = {}, me = '') {
   const out = [];
   for (const child of listing.data.children) {
     const p = child.data;
     const age = now / 1000 - p.created_utc;
-    if (age > REDDIT.maxAgeH * 3600) continue;
+    if (age < REDDIT.minAgeH * 3600 || age > REDDIT.maxAgeH * 3600) continue;
+    if (p.removed_by_category || p.author === '[deleted]') continue;
     if (p.num_comments > REDDIT.maxComments || p.locked || p.stickied || done[p.id]) continue;
     if (me && p.author === me) continue;
     const r = score(p);

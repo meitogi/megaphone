@@ -34,11 +34,14 @@ test('score : whole words only', () => {
   assert.equal(score({ title: 'CTR on PC', selftext: '' }).score, 2);
 });
 
-test('pick : drops old, busy, locked, pinned, mine and done ; best first ; URL and fields kept', () => {
+test('pick : drops too fresh, old, removed, deleted, busy, locked, pinned, mine and done ; best first ; URL and fields kept', () => {
   const listing = { data: { children: [
     post({ id: 'low', title: 'docker question' }),
     post({ id: 'top', title: 'devcontainer firewall egress', permalink: '/r/docker/comments/top/t/', subreddit: 'docker', num_comments: 2 }),
     post({ id: 'old', title: 'devcontainer', created_utc: NOW / 1000 - 25 * 3600 }),
+    post({ id: 'fresh', title: 'devcontainer', created_utc: NOW / 1000 - 1800 }),
+    post({ id: 'removed', title: 'devcontainer', removed_by_category: 'moderator' }),
+    post({ id: 'gone', title: 'devcontainer', author: '[deleted]' }),
     post({ id: 'busy', title: 'devcontainer', num_comments: 6 }),
     post({ id: 'locked', title: 'devcontainer', locked: true }),
     post({ id: 'pinned', title: 'devcontainer', stickied: true }),
