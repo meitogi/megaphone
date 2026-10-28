@@ -2,7 +2,7 @@
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
-//   POST /draft                → { draft } : a Reddit or HN reply drafted by `claude -p` for Scout
+//   POST /draft                → { draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -39,8 +39,10 @@ export function thread({ site, sub, title, body, url, comments = [] }) {
 
 // `claude -p` without tools on the Max subscription : the API key is dropped from the env, and
 // --safe-mode keeps the user's CLAUDE.md, hooks and skills out of the draft (auth unchanged).
+// stream-json is read for its result line and its rate_limit_event : the subscription windows'
+// utilization only comes there. usage = { in, out } tokens, plus { fiveHour, sevenDay } in %.
 export function claude(input, { root = ROOT, prompt = 'reddit-reply.md', run = spawn } = {}) {
-  const args = ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--system-prompt-file', join(root, 'prompts', prompt)];
+  const args = ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', join(root, 'prompts', prompt)];
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
   return new Promise((resolve, reject) => {
@@ -50,7 +52,26 @@ export function claude(input, { root = ROOT, prompt = 'reddit-reply.md', run = s
     child.stdout.on('data', (c) => (out += c));
     child.stderr.on('data', (c) => (err += c));
     child.on('error', reject);
-    child.on('close', (code) => (code === 0 ? resolve(out.trim()) : reject(new Error(`claude exited ${code} : ${err.trim() || out.trim()}`))));
+    child.on('close', (code) => {
+      if (code !== 0) return reject(new Error(`claude exited ${code} : ${err.trim() || out.trim()}`));
+      let result = null;
+      const usage = {};
+      for (const line of out.split('\n')) {
+        if (!line.startsWith('{')) continue;
+        const m = JSON.parse(line);
+        if (m.type === 'result') result = m;
+        else if (m.type === 'rate_limit_event') {
+          const w = m.rate_limit_info.unifiedWindows || {};
+          if (w.five_hour) usage.fiveHour = Math.round(w.five_hour.utilization * 100);
+          if (w.seven_day) usage.sevenDay = Math.round(w.seven_day.utilization * 100);
+        }
+      }
+      if (!result || result.is_error) return reject(new Error(`claude failed : ${result ? result.result : err.trim() || 'no result line'}`));
+      const u = result.usage;
+      usage.in = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens;
+      usage.out = u.output_tokens;
+      resolve({ draft: result.result.trim(), usage });
+    });
     child.stdin.end(input);
   });
 }
@@ -69,7 +90,7 @@ export function server({ root = ROOT, posts = join(root, 'posts'), draft = (inpu
         if (text.length > MAX_THREAD) return send(413, 'thread too large');
         const t = JSON.parse(text);
         if (!t.title || !t.sub || !PROMPTS[t.site]) return send(400, 'site (reddit or hn), sub and title required');
-        return send(200, JSON.stringify({ draft: await draft(thread(t), PROMPTS[t.site]) }), 'application/json');
+        return send(200, JSON.stringify(await draft(thread(t), PROMPTS[t.site])), 'application/json');
       }
       if (path === '/posts' && req.method === 'GET') {
         const names = (await readdir(posts)).filter((n) => NAME.test(n)).sort();

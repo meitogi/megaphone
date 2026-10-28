@@ -70,14 +70,14 @@ test('thread : the user message carries sub, URL, title, body and every comment'
 
 test('POST /draft : the thread and its site prompt reach the drafter, its answer comes back ; bad input refused', async () => {
   const seen = [];
-  const srv = server({ draft: async (input, prompt) => (seen.push([input, prompt]), 'Use `--network none`.') });
+  const srv = server({ draft: async (input, prompt) => (seen.push([input, prompt]), { draft: 'Use `--network none`.', usage: { in: 900, out: 60, fiveHour: 3, sevenDay: 31 } }) });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
   const url = `http://127.0.0.1:${srv.address().port}/draft`;
   try {
     const t = { site: 'reddit', sub: 'docker', title: 'T', body: 'B', url: 'U', comments: [] };
     const res = await fetch(url, { method: 'POST', body: JSON.stringify(t) });
     assert.equal(res.status, 200);
-    assert.deepEqual(await res.json(), { draft: 'Use `--network none`.' });
+    assert.deepEqual(await res.json(), { draft: 'Use `--network none`.', usage: { in: 900, out: 60, fiveHour: 3, sevenDay: 31 } });
     assert.deepEqual(seen, [[thread(t), 'reddit-reply.md']]);
     const h = { ...t, site: 'hn', sub: 'HN' };
     assert.equal((await fetch(url, { method: 'POST', body: JSON.stringify(h) })).status, 200);
@@ -112,13 +112,21 @@ function fakeSpawn(code, stdout, stderr = '') {
   return { run, calls };
 }
 
-test('claude : -p without tools, the prompt file, input on stdin, no API key in the env', async () => {
+// What `claude -p --output-format stream-json --verbose` prints, trimmed to the fields read.
+const STREAM = [
+  { type: 'system', subtype: 'init' },
+  { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.034 }, seven_day: { utilization: 0.31 } } } },
+  { type: 'assistant', message: {} },
+  { type: 'result', is_error: false, result: '  Draft text\n', usage: { input_tokens: 2, cache_creation_input_tokens: 1670, cache_read_input_tokens: 649, output_tokens: 57 } },
+].map((m) => JSON.stringify(m)).join('\n') + '\n';
+
+test('claude : -p without tools, the prompt file, input on stdin, no API key in the env ; draft, tokens and windows read back', async () => {
   process.env.ANTHROPIC_API_KEY = 'sk-test';
   try {
-    const { run, calls } = fakeSpawn(0, '  Draft text\n');
-    assert.equal(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), 'Draft text');
+    const { run, calls } = fakeSpawn(0, STREAM);
+    assert.deepEqual(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), { draft: 'Draft text', usage: { fiveHour: 3, sevenDay: 31, in: 2321, out: 57 } });
     assert.equal(calls[0].cmd, 'claude');
-    assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--system-prompt-file', '/app/prompts/hn-reply.md']);
+    assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', '/app/prompts/hn-reply.md']);
     assert.equal(calls[0].input, 'the thread');
     assert.equal('ANTHROPIC_API_KEY' in calls[0].env, false);
     assert.equal(calls[0].env.PATH, process.env.PATH);
@@ -127,9 +135,10 @@ test('claude : -p without tools, the prompt file, input on stdin, no API key in 
   }
 });
 
-test('claude : a non-zero exit rejects with its stderr', async () => {
-  const { run } = fakeSpawn(1, '', 'not logged in');
-  await assert.rejects(claude('x', { run }), /claude exited 1 : not logged in/);
+test('claude : a non-zero exit rejects with its stderr, an error result with its text', async () => {
+  await assert.rejects(claude('x', { run: fakeSpawn(1, '', 'not logged in').run }), /claude exited 1 : not logged in/);
+  const failed = JSON.stringify({ type: 'result', is_error: true, result: 'Usage limit reached' }) + '\n';
+  await assert.rejects(claude('x', { run: fakeSpawn(0, failed).run }), /claude failed : Usage limit reached/);
 });
 
 test('pickHn : recent, open enough, with traction, not mine, not done ; HN URL and id', () => {
