@@ -275,35 +275,44 @@ any other file in `lib/` fails the build. Once, on GitHub : Settings → Pages
 → Source : « GitHub Actions ». The page is then at
 `https://<owner>.github.io/megaphone/`.
 
-## Reddit Scout
+## Scout (Reddit and Hacker News)
 
-A userscript for reddit.com, in your logged-in browser, to earn karma the
-honest way : answer questions you know. It never posts.
+A userscript for reddit.com and news.ycombinator.com, in your logged-in
+browser, to earn karma the honest way : answer questions you know. It never
+posts.
 
-- **Scout** lists the threads of the last 24 h on r/ClaudeAI, r/ClaudeCode,
-  r/devcontainers, r/docker, r/emulation, r/WebAssembly and r/vscode that
-  have at most 5 comments and match your topics (devcontainers and
-  firewalls, Claude Code hooks and permissions, VS Code, WebAssembly
-  ports), best first. « fait » hides a thread for 7 days.
-- **Brouillon**, on a thread page, sends the post and its top 8 comments
-  to `POST /reddit/draft` on `npm run ui` ; the server runs `claude -p`
-  (no tools, your Claude subscription : `ANTHROPIC_API_KEY` is dropped from
-  its env) with [prompts/reddit-reply.md](prompts/reddit-reply.md) and the
-  draft comes back with a Copy button. `SKIP: …` means nothing solid to add.
-  Read it, make it yours, post it yourself.
+- **Scout** lists the threads worth a reply, best first, scored on your
+  topics (devcontainers and firewalls, Claude Code hooks and permissions,
+  VS Code, WebAssembly ports). Reddit : the last 24 h of r/ClaudeAI,
+  r/ClaudeCode, r/devcontainers, r/docker, r/emulation, r/WebAssembly and
+  r/vscode, at most 5 comments. HN : the stories of the last 36 h with at
+  least 3 points and at most 40 comments, through the public Algolia API.
+  « fait » hides a thread for 7 days.
+- **Brouillon**, on a thread page, sends the post and its first 8 comments to
+  `POST /draft` on `npm run ui` ; the server runs `claude -p --safe-mode`
+  (no tools, none of your CLAUDE.md or hooks, your Claude subscription :
+  `ANTHROPIC_API_KEY` is dropped from its env) with
+  [prompts/reddit-reply.md](prompts/reddit-reply.md) or
+  [prompts/hn-reply.md](prompts/hn-reply.md), and the draft comes back with a
+  Copy button. `SKIP: …` means nothing solid to add. Read it, make it yours,
+  post it yourself.
+
+**Hacker News forbids it as is** : « Don't post generated text or AI-edited
+text. HN is for conversation between humans. » (newsguidelines.html). On HN,
+take the draft as notes and write the comment yourself.
 
 Install : Tampermonkey or Violentmonkey → new script → paste
-[userscripts/reddit-scout.user.js](userscripts/reddit-scout.user.js). For
-Brouillon : `npm run ui` running and port 4173 forwarded to the host (VS Code,
-Ports panel). Subreddits, topics and thresholds are constants at the top of
-the script.
+[userscripts/scout.user.js](userscripts/scout.user.js). For Brouillon :
+`npm run ui` running and port 4173 forwarded to the host (VS Code, Ports
+panel). Subreddits, topics and thresholds are constants at the top of the
+script.
 
 ## Scripts
 
 | Script | Does |
 |---|---|
 | `npm run ui` | the page and the local backend on `localhost:4173` |
-| `npm test` | `node --test` on the post logic, the backends, the publishing requests, the schedule, the site build, the workflows and Reddit Scout |
+| `npm test` | `node --test` on the post logic, the backends, the publishing requests, the schedule, the site build, the workflows and Scout |
 | `npm run publish -- posts/<file>.md` | publish one post now to Bluesky, Mastodon, Discord, Dev.to (`--network`, `--force`) |
 | `npm run due` | publish every due `ready` post, move the complete ones to `published/` |
 | `npm run meta:auth` | the Meta token exchanges : Threads, the Facebook page, Instagram → `.env`, Actions secrets |
@@ -323,7 +332,7 @@ lib/meta.mjs      Threads, Facebook page, Instagram (Graph APIs)
 lib/linkedin.mjs  LinkedIn Posts, Images and Comments APIs
 lib/http.mjs      the error line and the follow-up rule the senders share
 lib/backends.mjs  local and GitHub backends : list, read, write, remove, bytes ; dispatch
-scripts/ui.mjs    the local server ; POST /reddit/draft for Reddit Scout
+scripts/ui.mjs    the local server ; POST /draft for Scout
 scripts/publish.mjs  npm run publish
 scripts/due.mjs   npm run due
 scripts/meta-auth.mjs, linkedin-auth.mjs  the token wizards ; wizard.mjs their shared parts
@@ -336,8 +345,8 @@ published/        posts already out
 ideas.md          one line per post idea
 metrics.md        one line per month
 assets/           brand sources and renders
-prompts/          reddit-reply.md, the Reddit Scout draft prompt
-userscripts/      reddit-scout.user.js
+prompts/          reddit-reply.md, hn-reply.md : the Scout draft prompts
+userscripts/      scout.user.js
 ```
 
 ## Publishing this repository

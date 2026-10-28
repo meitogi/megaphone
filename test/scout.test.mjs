@@ -7,13 +7,16 @@ import vm from 'node:vm';
 import { server, thread, claude } from '../scripts/ui.mjs';
 
 // The userscript's pure half, loaded as Tampermonkey would minus the page : no `document`, so main() never runs.
-const src = await readFile(new URL('../userscripts/reddit-scout.user.js', import.meta.url), 'utf8');
-const raw = vm.runInNewContext(`${src}\n;({ score, pick, threadOf })`, {});
+const src = await readFile(new URL('../userscripts/scout.user.js', import.meta.url), 'utf8');
+const raw = vm.runInNewContext(`${src}\n;({ score, pick, pickHn, text, threadOf, threadOfHn })`, {});
 // Objects built in the vm realm carry its prototypes : bring them back as plain data.
 const plain = (fn) => (...args) => JSON.parse(JSON.stringify(fn(...args)));
 const score = plain(raw.score);
 const pick = plain(raw.pick);
 const threadOf = plain(raw.threadOf);
+const pickHn = plain(raw.pickHn);
+const threadOfHn = plain(raw.threadOfHn);
+const text = raw.text;
 
 const NOW = Date.parse('2026-10-28T12:00:00Z');
 const post = (over) => ({ data: { id: 'a1', subreddit: 'ClaudeAI', title: 'x', selftext: '', permalink: '/r/ClaudeAI/comments/a1/x/', author: 'someone', created_utc: NOW / 1000 - 3600, num_comments: 0, locked: false, stickied: false, ...over } });
@@ -55,31 +58,35 @@ test('threadOf : post, then top-level comments without stickies or « more », c
     { data: { children: [c(0, { stickied: true }), c(1), { kind: 'more', data: {} }, c(2), c(3, { body: 'x'.repeat(2000) })] } },
   ];
   const t = threadOf(json, 2);
-  assert.deepEqual(t, { sub: 'ClaudeAI', title: 'Q', body: 'details', url: 'https://www.reddit.com/r/ClaudeAI/comments/a1/q/', comments: [{ author: 'u1', score: 9, body: 'body 1' }, { author: 'u2', score: 8, body: 'body 2' }] });
+  assert.deepEqual(t, { site: 'reddit', sub: 'ClaudeAI', title: 'Q', body: 'details', url: 'https://www.reddit.com/r/ClaudeAI/comments/a1/q/', comments: [{ author: 'u1', score: 9, body: 'body 1' }, { author: 'u2', score: 8, body: 'body 2' }] });
   assert.equal(threadOf(json).comments[2].body.length, 1500);
 });
 
 test('thread : the user message carries sub, URL, title, body and every comment', () => {
-  const text = thread({ sub: 'docker', title: 'T?', body: 'B', url: 'https://r/x', comments: [{ author: 'a', score: 3, body: 'C1' }, { author: 'b', score: 1, body: 'C2' }] });
-  assert.equal(text, 'r/docker — https://r/x\n\nTitle: T?\n\nB\n\nTop comments:\n\nu/a (3 points):\nC1\n\nu/b (1 points):\nC2');
-  assert.match(thread({ sub: 's', title: 't', url: 'u' }), /\(no body\)\n\nTop comments:\n\(none yet\)$/);
+  const msg = thread({ site: 'reddit', sub: 'docker', title: 'T?', body: 'B', url: 'https://r/x', comments: [{ author: 'a', score: 3, body: 'C1' }, { author: 'b', score: 1, body: 'C2' }] });
+  assert.equal(msg, 'r/docker — https://r/x\n\nTitle: T?\n\nB\n\nTop comments:\n\nu/a (3 points):\nC1\n\nu/b (1 points):\nC2');
+  assert.match(thread({ site: 'reddit', sub: 's', title: 't', url: 'u' }), /\(no body\)\n\nTop comments:\n\(none yet\)$/);
 });
 
-test('POST /reddit/draft : the thread reaches the drafter, its answer comes back ; bad input refused', async () => {
+test('POST /draft : the thread and its site prompt reach the drafter, its answer comes back ; bad input refused', async () => {
   const seen = [];
-  const srv = server({ draft: async (input) => (seen.push(input), 'Use `--network none`.') });
+  const srv = server({ draft: async (input, prompt) => (seen.push([input, prompt]), 'Use `--network none`.') });
   await new Promise((r) => srv.listen(0, '127.0.0.1', r));
-  const url = `http://127.0.0.1:${srv.address().port}/reddit/draft`;
+  const url = `http://127.0.0.1:${srv.address().port}/draft`;
   try {
-    const t = { sub: 'docker', title: 'T', body: 'B', url: 'U', comments: [] };
+    const t = { site: 'reddit', sub: 'docker', title: 'T', body: 'B', url: 'U', comments: [] };
     const res = await fetch(url, { method: 'POST', body: JSON.stringify(t) });
     assert.equal(res.status, 200);
     assert.deepEqual(await res.json(), { draft: 'Use `--network none`.' });
-    assert.deepEqual(seen, [thread(t)]);
+    assert.deepEqual(seen, [[thread(t), 'reddit-reply.md']]);
+    const h = { ...t, site: 'hn', sub: 'HN' };
+    assert.equal((await fetch(url, { method: 'POST', body: JSON.stringify(h) })).status, 200);
+    assert.deepEqual(seen[1], [thread(h), 'hn-reply.md']);
+    assert.equal((await fetch(url, { method: 'POST', body: JSON.stringify({ ...t, site: 'x' }) })).status, 400);
     assert.equal((await fetch(url)).status, 405);
     assert.equal((await fetch(url, { method: 'POST', body: '{"sub":"x"}' })).status, 400);
     assert.equal((await fetch(url, { method: 'POST', body: JSON.stringify({ ...t, body: 'x'.repeat(70000) }) })).status, 413);
-    assert.equal(seen.length, 1);
+    assert.equal(seen.length, 2);
   } finally {
     await new Promise((r) => srv.close(r));
   }
@@ -109,9 +116,9 @@ test('claude : -p without tools, the prompt file, input on stdin, no API key in 
   process.env.ANTHROPIC_API_KEY = 'sk-test';
   try {
     const { run, calls } = fakeSpawn(0, '  Draft text\n');
-    assert.equal(await claude('the thread', { root: '/app', run }), 'Draft text');
+    assert.equal(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), 'Draft text');
     assert.equal(calls[0].cmd, 'claude');
-    assert.deepEqual(calls[0].args, ['-p', '--tools', '', '--no-session-persistence', '--system-prompt-file', '/app/prompts/reddit-reply.md']);
+    assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--system-prompt-file', '/app/prompts/hn-reply.md']);
     assert.equal(calls[0].input, 'the thread');
     assert.equal('ANTHROPIC_API_KEY' in calls[0].env, false);
     assert.equal(calls[0].env.PATH, process.env.PATH);
@@ -123,4 +130,37 @@ test('claude : -p without tools, the prompt file, input on stdin, no API key in 
 test('claude : a non-zero exit rejects with its stderr', async () => {
   const { run } = fakeSpawn(1, '', 'not logged in');
   await assert.rejects(claude('x', { run }), /claude exited 1 : not logged in/);
+});
+
+test('pickHn : recent, open enough, with traction, not mine, not done ; HN URL and id', () => {
+  const hit = (over) => ({ objectID: '1', title: 'x', story_text: null, author: 'pg', points: 10, num_comments: 3, created_at_i: NOW / 1000 - 3600, ...over });
+  const json = { hits: [
+    hit({ objectID: '1', title: 'Show HN: a devcontainer with a firewall', num_comments: 30 }),
+    hit({ objectID: '2', title: 'Ask HN: how do you sandbox Claude Code?', story_text: '<p>I use docker &amp; hooks' }),
+    hit({ objectID: '3', title: 'devcontainer', created_at_i: NOW / 1000 - 37 * 3600 }),
+    hit({ objectID: '4', title: 'devcontainer', num_comments: 41 }),
+    hit({ objectID: '5', title: 'devcontainer', points: 2 }),
+    hit({ objectID: '6', title: 'devcontainer', author: 'meitogi' }),
+    hit({ objectID: '7', title: 'devcontainer' }),
+    hit({ objectID: '8', title: 'A new font' }),
+  ] };
+  const rows = pickHn(json, NOW, { hn7: NOW }, 'meitogi');
+  assert.deepEqual(rows.map((r) => r.id), ['hn2', 'hn1']);
+  assert.deepEqual(rows[0], { id: 'hn2', sub: 'HN', title: 'Ask HN: how do you sandbox Claude Code?', url: 'https://news.ycombinator.com/item?id=2', age: 3600, comments: 3, score: 4 + 2 + 1 + 2 + 2, topics: ['sandbox', 'claude-code'] });
+});
+
+test('text : HN HTML to plain text', () => {
+  assert.equal(text('Use <i>this</i>:<p>a &gt; b &amp;&amp; c &#x27;d&#x27; &quot;e&quot; <a href="https:&#x2F;&#x2F;x.io">https:&#x2F;&#x2F;x.io</a>'), "Use this:\n\na > b && c 'd' \"e\" https://x.io");
+});
+
+test('threadOfHn : title, link and text, first comments as plain text, capped', () => {
+  const item = { id: 9, title: 'Show HN: X', url: 'https://x.io', text: null, children: [
+    { author: 'a', text: 'First <i>one</i>' }, { author: null, text: null }, { author: 'b', text: 'y'.repeat(2000) }, { author: 'c', text: 'third' },
+  ] };
+  assert.deepEqual(threadOfHn(item, 2), { site: 'hn', sub: 'HN', title: 'Show HN: X', body: 'Link: https://x.io', url: 'https://news.ycombinator.com/item?id=9', comments: [{ author: 'a', score: null, body: 'First one' }, { author: 'b', score: null, body: 'y'.repeat(1500) }] });
+  assert.equal(threadOfHn({ ...item, url: null, text: 'Ask <i>text</i>' }).body, 'Ask text');
+});
+
+test('thread : HN has no subreddit, no u/ and no points', () => {
+  assert.equal(thread({ site: 'hn', sub: 'HN', title: 'T', body: 'B', url: 'U', comments: [{ author: 'a', score: null, body: 'C' }] }), 'Hacker News — U\n\nTitle: T\n\nB\n\nTop comments:\n\na:\nC');
 });

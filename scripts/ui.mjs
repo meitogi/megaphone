@@ -2,7 +2,7 @@
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
-//   POST /reddit/draft         → { draft } : a reply drafted by `claude -p` for Reddit Scout
+//   POST /draft                → { draft } : a Reddit or HN reply drafted by `claude -p` for Scout
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -16,6 +16,8 @@ const NAME = /^[\w.-]+\.md$/;
 const IMAGES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 const IMAGE = /^[\w-][\w.-]*\.(png|jpe?g|gif|webp)$/i;
 const MAX_THREAD = 64 * 1024;
+// Scout's site → the draft prompt in prompts/.
+const PROMPTS = { reddit: 'reddit-reply.md', hn: 'hn-reply.md' };
 
 function body(req) {
   return new Promise((resolve, reject) => {
@@ -27,16 +29,18 @@ function body(req) {
 }
 
 // The thread as the user message of the draft : what the prompt says comes in.
-export function thread({ sub, title, body, url, comments = [] }) {
-  const lines = [`r/${sub} — ${url}`, '', `Title: ${title}`, '', body || '(no body)', '', 'Top comments:'];
+export function thread({ site, sub, title, body, url, comments = [] }) {
+  const hn = site === 'hn';
+  const lines = [`${hn ? 'Hacker News' : `r/${sub}`} — ${url}`, '', `Title: ${title}`, '', body || '(no body)', '', 'Top comments:'];
   if (!comments.length) lines.push('(none yet)');
-  for (const c of comments) lines.push('', `u/${c.author} (${c.score} points):`, c.body);
+  for (const c of comments) lines.push('', hn ? `${c.author}:` : `u/${c.author} (${c.score} points):`, c.body);
   return lines.join('\n');
 }
 
-// `claude -p` without tools on the Max subscription : the API key is dropped from the env.
-export function claude(input, { root = ROOT, run = spawn } = {}) {
-  const args = ['-p', '--tools', '', '--no-session-persistence', '--system-prompt-file', join(root, 'prompts', 'reddit-reply.md')];
+// `claude -p` without tools on the Max subscription : the API key is dropped from the env, and
+// --safe-mode keeps the user's CLAUDE.md, hooks and skills out of the draft (auth unchanged).
+export function claude(input, { root = ROOT, prompt = 'reddit-reply.md', run = spawn } = {}) {
+  const args = ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--system-prompt-file', join(root, 'prompts', prompt)];
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
   return new Promise((resolve, reject) => {
@@ -51,7 +55,7 @@ export function claude(input, { root = ROOT, run = spawn } = {}) {
   });
 }
 
-export function server({ root = ROOT, posts = join(root, 'posts'), draft = (input) => claude(input, { root }) } = {}) {
+export function server({ root = ROOT, posts = join(root, 'posts'), draft = (input, prompt) => claude(input, { root, prompt }) } = {}) {
   return createServer(async (req, res) => {
     const send = (code, data, type = 'text/plain; charset=utf-8') => {
       res.writeHead(code, { 'Content-Type': type, 'Cache-Control': 'no-store' });
@@ -59,13 +63,13 @@ export function server({ root = ROOT, posts = join(root, 'posts'), draft = (inpu
     };
     try {
       const path = decodeURIComponent(new URL(req.url, 'http://x').pathname);
-      if (path === '/reddit/draft') {
+      if (path === '/draft') {
         if (req.method !== 'POST') return send(405, 'method not allowed');
         const text = await body(req);
         if (text.length > MAX_THREAD) return send(413, 'thread too large');
         const t = JSON.parse(text);
-        if (!t.title || !t.sub) return send(400, 'title and sub required');
-        return send(200, JSON.stringify({ draft: await draft(thread(t)) }), 'application/json');
+        if (!t.title || !t.sub || !PROMPTS[t.site]) return send(400, 'site (reddit or hn), sub and title required');
+        return send(200, JSON.stringify({ draft: await draft(thread(t), PROMPTS[t.site]) }), 'application/json');
       }
       if (path === '/posts' && req.method === 'GET') {
         const names = (await readdir(posts)).filter((n) => NAME.test(n)).sort();
