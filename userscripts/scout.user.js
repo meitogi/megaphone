@@ -240,7 +240,7 @@ function main(site) {
       onload: (res) => {
         if (res.status !== 200) return fail(`Serveur local : HTTP ${res.status} — ${res.responseText}`);
         const box = el('textarea', 'width:100%;min-height:200px;margin-top:8px;background:#0F1217;color:#D8DEE6;border:1px solid #3A4250;border-radius:6px;padding:8px;font:13px/1.45 system-ui;box-sizing:border-box');
-        const { draft, usage: u } = JSON.parse(res.responseText);
+        const { analysis, draft, usage: u } = JSON.parse(res.responseText);
         box.value = draft;
         const copy = el('button', BTN, 'Copier');
         copy.onclick = () => {
@@ -250,6 +250,7 @@ function main(site) {
         const warn = t.site === 'hn' ? ' HN interdit le texte généré : réécris-le vraiment.' : '';
         const cost = `${u.in} tokens lus, ${u.out} écrits · abonnement : ${u.fiveHour ?? '?'} % sur 5 h, ${u.sevenDay ?? '?'} % sur 7 j`;
         show(close, el('div', 'font-weight:600', 'Brouillon'), el('div', 'color:#8A94A3', `Relis, mets-le à ta façon, poste toi-même.${warn}`), box, copy, el('div', 'color:#8A94A3;margin-top:6px', cost));
+        if (analysis) panel.insertBefore(el('div', 'margin-top:6px;padding:8px;background:#1F242C;border-radius:6px;white-space:pre-wrap', analysis), box);
       },
       onerror: () => fail('Serveur local injoignable : lance « npm run ui » dans apps/megaphone et forwarde le port 4173 (VS Code, panneau Ports).'),
       ontimeout: () => fail('Pas de réponse en 3 min : regarde le terminal de « npm run ui ».'),

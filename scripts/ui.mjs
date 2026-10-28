@@ -2,7 +2,7 @@
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
-//   POST /draft                → { draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
+//   POST /draft                → { analysis, draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -35,6 +35,12 @@ export function thread({ site, sub, title, body, url, comments = [] }) {
   if (!comments.length) lines.push('(none yet)');
   for (const c of comments) lines.push('', hn ? `${c.author}:` : `u/${c.author} (${c.score} points):`, c.body);
   return lines.join('\n');
+}
+
+// The model's answer, « ANALYSE: … RÉPONSE: … » per the prompts ; without the markers, all of it is the draft.
+export function parse(text) {
+  const m = /^\s*ANALYSE\s*:\s*([\s\S]*?)\n\s*RÉPONSE\s*:\s*([\s\S]*)$/.exec(text);
+  return m ? { analysis: m[1].trim(), draft: m[2].trim() } : { analysis: '', draft: text.trim() };
 }
 
 // `claude -p` without tools on the Max subscription : the API key is dropped from the env, and
@@ -70,7 +76,7 @@ export function claude(input, { root = ROOT, prompt = 'reddit-reply.md', run = s
       const u = result.usage;
       usage.in = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens;
       usage.out = u.output_tokens;
-      resolve({ draft: result.result.trim(), usage });
+      resolve({ ...parse(result.result), usage });
     });
     child.stdin.end(input);
   });
