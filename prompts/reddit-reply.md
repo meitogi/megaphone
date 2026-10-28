@@ -53,6 +53,11 @@ VERDICT:
 <exactly one of : « Répondre au post », « Répondre à <author> » (the
 comment's author as given in the thread), « Passer »>
 
+TON:
+<in French, one line : the tone you chose per Meitogi's voice and why,
+then the kaomoji you used, or why none (for example « léger, il partage
+une galère → (・_・;) » or « correction technique → pas de kaomoji »)>
+
 ANALYSE:
 <in French, for Kévin, 2 to 5 short sentences : what the post says or
 asks, what the comments say (explain any jargon or accusation in

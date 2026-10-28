@@ -2,7 +2,7 @@
 //   GET /posts                 → [{ name }]
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
-//   POST /draft                → { verdict, analysis, draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
+//   POST /draft                → { verdict, tone, analysis, draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -37,10 +37,11 @@ export function thread({ site, sub, title, body, url, comments = [] }) {
   return lines.join('\n');
 }
 
-// The model's answer, « VERDICT: … ANALYSE: … RÉPONSE: … » per the prompts ; without the markers, all of it is the draft.
+// The model's answer, « VERDICT: … TON: … ANALYSE: … RÉPONSE: … » per the prompts ; without the markers, all of it is the draft.
 export function parse(text) {
-  const m = /^\s*(?:VERDICT\s*:\s*([\s\S]*?)\n\s*)?ANALYSE\s*:\s*([\s\S]*?)\n\s*RÉPONSE\s*:\s*([\s\S]*)$/.exec(text);
-  return m ? { verdict: (m[1] || '').trim(), analysis: m[2].trim(), draft: m[3].trim() } : { verdict: '', analysis: '', draft: text.trim() };
+  const m = /^\s*(?:VERDICT\s*:\s*([\s\S]*?)\n\s*)?(?:TON\s*:\s*([\s\S]*?)\n\s*)?ANALYSE\s*:\s*([\s\S]*?)\n\s*RÉPONSE\s*:\s*([\s\S]*)$/.exec(text);
+  if (!m) return { verdict: '', tone: '', analysis: '', draft: text.trim() };
+  return { verdict: (m[1] || '').trim(), tone: (m[2] || '').trim(), analysis: m[3].trim(), draft: m[4].trim() };
 }
 
 // `claude -p` without tools on the Max subscription : the API key is dropped from the env, and

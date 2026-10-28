@@ -137,9 +137,13 @@ function el(tag, style, txt) {
   return e;
 }
 
+// id → { at, title, url, where } ; a bare timestamp is an entry from before titles were kept.
 function loadDone(now) {
   const done = GM_getValue('done', {});
-  for (const id in done) if (now - done[id] > 7 * DAY) delete done[id];
+  for (const id in done) {
+    const d = done[id];
+    if (now - (d.at ?? d) > 7 * DAY) delete done[id];
+  }
   return done;
 }
 
@@ -198,24 +202,46 @@ function main(site) {
         me = await site.me();
       } catch {}
       const rows = await site.list(now, done, me);
+      const today = new Date(now).setHours(0, 0, 0, 0);
+      let doneToday = 0;
+      for (const id in done) if ((done[id].at ?? done[id]) >= today) doneToday++;
+      // « fait » and « annuler » flip one row in place, so a misclick is undone where it happened.
+      const toggle = (id, info, row, mark) => {
+        const on = !done[id];
+        if (on) done[id] = { at: Date.now(), ...info };
+        else delete done[id];
+        GM_setValue('done', done);
+        row.style.opacity = on ? '0.4' : '1';
+        mark.textContent = on ? 'annuler' : 'fait';
+      };
+      const line = (id, info, metaText, label) => {
+        const row = el('div', 'padding:8px 0;border-top:1px solid #2A303A');
+        const a = el('a', 'color:#D8DEE6;font-weight:600;text-decoration:none', info.title || id);
+        if (info.url) a.href = info.url;
+        const mark = el('button', `${BTN};margin-top:4px;padding:2px 8px`, label);
+        mark.onclick = () => toggle(id, info, row, mark);
+        row.append(a, el('div', 'color:#8A94A3', metaText), mark);
+        return row;
+      };
       const list = el('div');
       for (const r of rows) {
-        const row = el('div', 'padding:8px 0;border-top:1px solid #2A303A');
-        const a = el('a', 'color:#D8DEE6;font-weight:600;text-decoration:none', r.title);
-        a.href = r.url;
         const where = r.sub === 'HN' ? 'HN' : `r/${r.sub}`;
-        const meta = el('div', 'color:#8A94A3', `${r.score} pts · ${where} · ${Math.round(r.age / 3600)} h · ${r.comments} comm. · ${r.topics.join(', ')}`);
-        const mark = el('button', `${BTN};margin-top:4px;padding:2px 8px`, 'fait');
-        mark.onclick = () => {
-          done[r.id] = Date.now();
-          GM_setValue('done', done);
-          row.remove();
-        };
-        row.append(a, meta, mark);
-        list.append(row);
+        list.append(line(r.id, { title: r.title, url: r.url, where }, `${r.score} pts · ${where} · ${Math.round(r.age / 3600)} h · ${r.comments} comm. · ${r.topics.join(', ')}`, 'fait'));
       }
       if (!rows.length) list.append(el('div', 'color:#8A94A3', 'Rien de récent sur tes sujets. Repasse plus tard.'));
-      show(close, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s)`), list);
+      const doneList = el('div', 'display:none');
+      const ids = [];
+      for (const id in done) ids.push(id);
+      ids.sort((x, y) => (done[y].at ?? done[y]) - (done[x].at ?? done[x]));
+      for (const id of ids) {
+        const d = done[id];
+        const info = typeof d === 'object' ? d : {};
+        doneList.append(line(id, info, `${info.where || ''} · fait le ${new Date(d.at ?? d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'annuler'));
+        doneList.lastChild.style.opacity = '0.4';
+      }
+      const showDone = el('button', `${BTN};margin-top:10px`, `Faits (${ids.length}, 7 j)`);
+      showDone.onclick = () => (doneList.style.display = doneList.style.display === 'none' ? 'block' : 'none');
+      show(close, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s) · ${doneToday} fait(s) aujourd'hui`), list, showDone, doneList);
     } catch (e) {
       fail(`Lecture impossible : ${e.message}`);
     }
@@ -240,7 +266,7 @@ function main(site) {
       onload: (res) => {
         if (res.status !== 200) return fail(`Serveur local : HTTP ${res.status} — ${res.responseText}`);
         const box = el('textarea', 'width:100%;min-height:200px;margin-top:8px;background:#0F1217;color:#D8DEE6;border:1px solid #3A4250;border-radius:6px;padding:8px;font:13px/1.45 system-ui;box-sizing:border-box');
-        const { verdict, analysis, draft, usage: u } = JSON.parse(res.responseText);
+        const { verdict, tone, analysis, draft, usage: u } = JSON.parse(res.responseText);
         box.value = draft;
         const copy = el('button', BTN, 'Copier');
         copy.onclick = () => {
@@ -250,7 +276,8 @@ function main(site) {
         const warn = t.site === 'hn' ? ' HN interdit le texte généré : réécris-le vraiment.' : '';
         const cost = `${u.in} tokens lus, ${u.out} écrits · abonnement : ${u.fiveHour ?? '?'} % sur 5 h, ${u.sevenDay ?? '?'} % sur 7 j`;
         show(close, el('div', 'font-weight:600', 'Brouillon'), el('div', 'color:#8A94A3', `Relis, mets-le à ta façon, poste toi-même.${warn}`), box, copy, el('div', 'color:#8A94A3;margin-top:6px', cost));
-        if (verdict) panel.insertBefore(el('div', 'margin-top:8px;font-weight:600;color:#7FD1A8', verdict), box);
+        if (verdict) panel.insertBefore(el('div', 'margin-top:8px;font-weight:600;color:#7FD1A8', `Action à faire : ${verdict}`), box);
+        if (tone) panel.insertBefore(el('div', 'margin-top:4px;color:#8A94A3', `Ton : ${tone}`), box);
         if (analysis) panel.insertBefore(el('div', 'margin-top:6px;padding:8px;background:#1F242C;border-radius:6px;white-space:pre-wrap', analysis), box);
       },
       onerror: () => fail('Serveur local injoignable : lance « npm run ui » dans apps/megaphone et forwarde le port 4173 (VS Code, panneau Ports).'),
