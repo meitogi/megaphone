@@ -117,14 +117,14 @@ const STREAM = [
   { type: 'system', subtype: 'init' },
   { type: 'rate_limit_event', rate_limit_info: { status: 'allowed', unifiedWindows: { five_hour: { utilization: 0.034 }, seven_day: { utilization: 0.31 } } } },
   { type: 'assistant', message: {} },
-  { type: 'result', is_error: false, result: 'ANALYSE:\nUne question.\n\nRÉPONSE:\n  Draft text\n', usage: { input_tokens: 2, cache_creation_input_tokens: 1670, cache_read_input_tokens: 649, output_tokens: 57 } },
+  { type: 'result', is_error: false, result: 'VERDICT:\nRépondre au post\n\nANALYSE:\nUne question.\n\nRÉPONSE:\n  Draft text\n', usage: { input_tokens: 2, cache_creation_input_tokens: 1670, cache_read_input_tokens: 649, output_tokens: 57 } },
 ].map((m) => JSON.stringify(m)).join('\n') + '\n';
 
 test('claude : -p without tools, the prompt file, input on stdin, no API key in the env ; draft, tokens and windows read back', async () => {
   process.env.ANTHROPIC_API_KEY = 'sk-test';
   try {
     const { run, calls } = fakeSpawn(0, STREAM);
-    assert.deepEqual(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), { analysis: 'Une question.', draft: 'Draft text', usage: { fiveHour: 3, sevenDay: 31, in: 2321, out: 57 } });
+    assert.deepEqual(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), { verdict: 'Répondre au post', analysis: 'Une question.', draft: 'Draft text', usage: { fiveHour: 3, sevenDay: 31, in: 2321, out: 57 } });
     assert.equal(calls[0].cmd, 'claude');
     assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', '/app/prompts/hn-reply.md']);
     assert.equal(calls[0].input, 'the thread');
@@ -174,7 +174,8 @@ test('thread : HN has no subreddit, no u/ and no points', () => {
   assert.equal(thread({ site: 'hn', sub: 'HN', title: 'T', body: 'B', url: 'U', comments: [{ author: 'a', score: null, body: 'C' }] }), 'Hacker News — U\n\nTitle: T\n\nB\n\nTop comments:\n\na:\nC');
 });
 
-test('parse : analysis and reply split on the markers, SKIP kept, no markers means all draft', () => {
-  assert.deepEqual(parse('ANALYSE:\nIl demande X.\nLes commentaires l\'accusent.\n\nRÉPONSE:\nSKIP: hostile thread\n'), { analysis: "Il demande X.\nLes commentaires l'accusent.", draft: 'SKIP: hostile thread' });
-  assert.deepEqual(parse('  Just a reply.  '), { analysis: '', draft: 'Just a reply.' });
+test('parse : verdict, analysis and reply split on the markers, SKIP kept, no markers means all draft', () => {
+  assert.deepEqual(parse('VERDICT:\nRépondre à u/bob\n\nANALYSE:\nIl demande X.\nLes commentaires l\'accusent.\n\nRÉPONSE:\nSKIP: hostile thread\n'), { verdict: 'Répondre à u/bob', analysis: "Il demande X.\nLes commentaires l'accusent.", draft: 'SKIP: hostile thread' });
+  assert.deepEqual(parse('ANALYSE:\nA\nRÉPONSE:\nB'), { verdict: '', analysis: 'A', draft: 'B' });
+  assert.deepEqual(parse('  Just a reply.  '), { verdict: '', analysis: '', draft: 'Just a reply.' });
 });

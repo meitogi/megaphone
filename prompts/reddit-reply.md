@@ -40,7 +40,18 @@ astroturfing — undisclosed promotion dressed as a genuine post, spam).
 When the thread is hostile or the post is suspected of being an ad, a
 reply gains little and ties his name to it : lean to SKIP.
 
+Choose where the reply goes. Under the post when its question is still
+open. Under one comment when that comment is where the useful point
+belongs — it asks a follow-up, gets something wrong, or is the top
+comment of a busy thread where a late top-level reply would sink ;
+replies to comments earn karma like any comment. Nowhere when there is
+nothing solid to add.
+
 Answer in exactly this shape, nothing around it :
+
+VERDICT:
+<exactly one of : « Répondre au post », « Répondre à <author> » (the
+comment's author as given in the thread), « Passer »>
 
 ANALYSE:
 <in French, for Kévin, 2 to 5 short sentences : what the post says or
@@ -48,6 +59,6 @@ asks, what the comments say (explain any jargon or accusation in
 plain words), and your opinion — is it worth his time, and why>
 
 RÉPONSE:
-<the reply text, or exactly `SKIP: <one short reason>` when there is
+<the reply text — to the post or to that comment, per the verdict — or exactly `SKIP: <one short reason>` when there is
 nothing solid to add — off his topics, already answered, opinion bait, a rant,
 a question you cannot answer with confidence>
