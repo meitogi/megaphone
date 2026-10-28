@@ -19,6 +19,8 @@ const REDDIT = { maxAgeH: 24, maxComments: 5 };
 // HN threads stay open longer and a busy one is still worth joining ; points ≥ 3 drops the dead ones.
 const HN = { maxAgeH: 36, maxComments: 40, minPoints: 3 };
 const SHOWN = 15;
+// Replies a day : spread out, a new account posting in bursts trips Reddit's spam filter.
+const GOAL = 3;
 const DRAFT_URL = 'http://localhost:4173/draft';
 // Keyword → weight, per theme. A title hit counts double.
 const TOPICS = {
@@ -138,6 +140,14 @@ function el(tag, style, txt) {
 }
 
 // id → { at, title, url, where } ; a bare timestamp is an entry from before titles were kept.
+// Threads marked done since local midnight.
+function doneSince(done, now) {
+  const today = new Date(now).setHours(0, 0, 0, 0);
+  let n = 0;
+  for (const id in done) if ((done[id].at ?? done[id]) >= today) n++;
+  return n;
+}
+
 function loadDone(now) {
   const done = GM_getValue('done', {});
   for (const id in done) {
@@ -179,7 +189,9 @@ const SITES = {
 function main(site) {
   const bar = el('div', 'position:fixed;left:16px;bottom:16px;z-index:2147483646;display:flex;gap:6px');
   const panel = el('div', 'position:fixed;left:16px;bottom:56px;z-index:2147483646;width:min(560px,calc(100vw - 32px));max-height:70vh;overflow:auto;background:#161A20;color:#D8DEE6;border:1px solid #3A4250;border-radius:8px;padding:12px;font:13px/1.45 system-ui;display:none');
-  const scout = el('button', BTN, 'Scout');
+  const scout = el('button', BTN);
+  const goal = (done) => (scout.textContent = `Scout ${doneSince(done, Date.now())}/${GOAL}`);
+  goal(loadDone(Date.now()));
   const draftBtn = el('button', BTN, 'Brouillon');
   bar.append(scout, draftBtn);
   document.body.append(bar, panel);
@@ -202,9 +214,6 @@ function main(site) {
         me = await site.me();
       } catch {}
       const rows = await site.list(now, done, me);
-      const today = new Date(now).setHours(0, 0, 0, 0);
-      let doneToday = 0;
-      for (const id in done) if ((done[id].at ?? done[id]) >= today) doneToday++;
       const list = el('div');
       const doneList = el('div', 'display:none;margin-bottom:8px');
       const showDone = el('button', `${BTN};float:right;margin-right:6px`);
@@ -220,6 +229,7 @@ function main(site) {
         if (on) doneList.prepend(row);
         else list.append(row);
         count();
+        goal(done);
       };
       const line = (id, info, metaText, label) => {
         const row = el('div', 'padding:8px 0;border-top:1px solid #2A303A');
@@ -246,7 +256,7 @@ function main(site) {
       }
       count();
       showDone.onclick = () => (doneList.style.display = doneList.style.display === 'none' ? 'block' : 'none');
-      show(close, showDone, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s) · ${doneToday} fait(s) aujourd'hui`), doneList, list);
+      show(close, showDone, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s)`), doneList, list);
     } catch (e) {
       fail(`Lecture impossible : ${e.message}`);
     }

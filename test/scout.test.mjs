@@ -8,7 +8,7 @@ import { server, thread, claude, parse } from '../scripts/ui.mjs';
 
 // The userscript's pure half, loaded as Tampermonkey would minus the page : no `document`, so main() never runs.
 const src = await readFile(new URL('../userscripts/scout.user.js', import.meta.url), 'utf8');
-const raw = vm.runInNewContext(`${src}\n;({ score, pick, pickHn, text, threadOf, threadOfHn })`, {});
+const raw = vm.runInNewContext(`${src}\n;({ score, pick, pickHn, text, threadOf, threadOfHn, doneSince })`, {});
 // Objects built in the vm realm carry its prototypes : bring them back as plain data.
 const plain = (fn) => (...args) => JSON.parse(JSON.stringify(fn(...args)));
 const score = plain(raw.score);
@@ -178,4 +178,9 @@ test('parse : verdict, analysis and reply split on the markers, SKIP kept, no ma
   assert.deepEqual(parse('VERDICT:\nRépondre à u/bob\n\nANALYSE:\nIl demande X.\nLes commentaires l\'accusent.\n\nRÉPONSE:\nSKIP: hostile thread\n'), { verdict: 'Répondre à u/bob', tone: '', analysis: "Il demande X.\nLes commentaires l'accusent.", draft: 'SKIP: hostile thread' });
   assert.deepEqual(parse('ANALYSE:\nA\nRÉPONSE:\nB'), { verdict: '', tone: '', analysis: 'A', draft: 'B' });
   assert.deepEqual(parse('  Just a reply.  '), { verdict: '', tone: '', analysis: '', draft: 'Just a reply.' });
+});
+
+test('doneSince : counts the marks since local midnight, old bare timestamps included', () => {
+  const midnight = new Date(NOW).setHours(0, 0, 0, 0);
+  assert.equal(raw.doneSince({ a: { at: midnight + 1 }, b: midnight + 5, c: { at: midnight - 1 }, d: midnight - 86400e3 }, NOW), 2);
 });
