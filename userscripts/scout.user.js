@@ -205,7 +205,11 @@ function main(site) {
       const today = new Date(now).setHours(0, 0, 0, 0);
       let doneToday = 0;
       for (const id in done) if ((done[id].at ?? done[id]) >= today) doneToday++;
-      // « fait » and « annuler » flip one row in place, so a misclick is undone where it happened.
+      const list = el('div');
+      const doneList = el('div', 'display:none;margin-bottom:8px');
+      const showDone = el('button', `${BTN};float:right;margin-right:6px`);
+      const count = () => (showDone.textContent = `Faits (${doneList.childElementCount}, 7 j)`);
+      // « fait » moves the row to the Faits list (top), « annuler » moves it back to the end of the list.
       const toggle = (id, info, row, mark) => {
         const on = !done[id];
         if (on) done[id] = { at: Date.now(), ...info };
@@ -213,6 +217,9 @@ function main(site) {
         GM_setValue('done', done);
         row.style.opacity = on ? '0.4' : '1';
         mark.textContent = on ? 'annuler' : 'fait';
+        if (on) doneList.prepend(row);
+        else list.append(row);
+        count();
       };
       const line = (id, info, metaText, label) => {
         const row = el('div', 'padding:8px 0;border-top:1px solid #2A303A');
@@ -223,13 +230,11 @@ function main(site) {
         row.append(a, el('div', 'color:#8A94A3', metaText), mark);
         return row;
       };
-      const list = el('div');
       for (const r of rows) {
         const where = r.sub === 'HN' ? 'HN' : `r/${r.sub}`;
         list.append(line(r.id, { title: r.title, url: r.url, where }, `${r.score} pts · ${where} · ${Math.round(r.age / 3600)} h · ${r.comments} comm. · ${r.topics.join(', ')}`, 'fait'));
       }
       if (!rows.length) list.append(el('div', 'color:#8A94A3', 'Rien de récent sur tes sujets. Repasse plus tard.'));
-      const doneList = el('div', 'display:none');
       const ids = [];
       for (const id in done) ids.push(id);
       ids.sort((x, y) => (done[y].at ?? done[y]) - (done[x].at ?? done[x]));
@@ -239,9 +244,9 @@ function main(site) {
         doneList.append(line(id, info, `${info.where || ''} · fait le ${new Date(d.at ?? d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}`, 'annuler'));
         doneList.lastChild.style.opacity = '0.4';
       }
-      const showDone = el('button', `${BTN};margin-top:10px`, `Faits (${ids.length}, 7 j)`);
+      count();
       showDone.onclick = () => (doneList.style.display = doneList.style.display === 'none' ? 'block' : 'none');
-      show(close, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s) · ${doneToday} fait(s) aujourd'hui`), list, showDone, doneList);
+      show(close, showDone, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s) · ${doneToday} fait(s) aujourd'hui`), doneList, list);
     } catch (e) {
       fail(`Lecture impossible : ${e.message}`);
     }
