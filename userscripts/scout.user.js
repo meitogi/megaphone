@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Scout (Megaphone)
 // @namespace    meitogi.megaphone
-// @version      0.2.0
+// @version      0.3.0
 // @description  Lists the recent Reddit and Hacker News threads worth answering and drafts a reply through the local Megaphone server. Never posts anything.
 // @match        https://www.reddit.com/*
 // @match        https://news.ycombinator.com/*
@@ -10,6 +10,8 @@
 // @grant        GM_xmlhttpRequest
 // @grant        GM_setClipboard
 // @connect      localhost
+// @updateURL    http://localhost:4173/scout.user.js
+// @downloadURL  http://localhost:4173/scout.user.js
 // @noframes
 // ==/UserScript==
 
@@ -258,7 +260,7 @@ function main(site) {
       }
       count();
       showDone.onclick = () => (doneList.style.display = doneList.style.display === 'none' ? 'block' : 'none');
-      show(close, showDone, el('div', 'font-weight:600;margin-bottom:6px', `Scout — ${rows.length} fil(s)`), doneList, list);
+      show(close, showDone, el('div', 'font-weight:600;margin-bottom:6px', `Scout ${typeof GM_info === 'object' ? GM_info.script.version : ''} — ${rows.length} fil(s)`), doneList, list);
     } catch (e) {
       fail(`Lecture impossible : ${e.message}`);
     }

@@ -3,6 +3,7 @@
 //   GET|PUT|DELETE /posts/<n>  → the Markdown file posts/<n>
 //   GET /posts/img/<n>         → an image of posts/img/, read-only
 //   POST /draft                → { verdict, tone, analysis, draft, usage } : a Reddit or HN reply drafted by `claude -p` for Scout
+//   GET /scout.user.js         → the Scout userscript, where Tampermonkey installs and updates it from
 // Everything else is served read-only from index.html and lib/.
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
@@ -11,7 +12,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8' };
+const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; charset=utf-8', '.js': 'text/javascript; charset=utf-8' };
 const NAME = /^[\w.-]+\.md$/;
 const IMAGES = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp' };
 const IMAGE = /^[\w-][\w.-]*\.(png|jpe?g|gif|webp)$/i;
@@ -121,8 +122,8 @@ export function server({ root = ROOT, posts = join(root, 'posts'), draft = (inpu
         else return send(405, 'method not allowed');
         return send(204);
       }
-      const rel = path === '/' ? 'index.html' : path.slice(1);
-      if (req.method !== 'GET' || !(rel === 'index.html' || /^lib\/[\w.-]+\.mjs$/.test(rel))) return send(404, 'not found');
+      const rel = path === '/' ? 'index.html' : path === '/scout.user.js' ? 'userscripts/scout.user.js' : path.slice(1);
+      if (req.method !== 'GET' || !(rel === 'index.html' || rel === 'userscripts/scout.user.js' || /^lib\/[\w.-]+\.mjs$/.test(rel))) return send(404, 'not found');
       return send(200, await readFile(join(root, rel)), TYPES[rel.slice(rel.lastIndexOf('.'))]);
     } catch (e) {
       send(e.code === 'ENOENT' ? 404 : 500, String(e.message));

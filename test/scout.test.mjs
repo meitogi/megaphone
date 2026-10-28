@@ -187,3 +187,17 @@ test('doneSince : counts the marks since local midnight, old bare timestamps inc
   const midnight = new Date(NOW).setHours(0, 0, 0, 0);
   assert.equal(raw.doneSince({ a: { at: midnight + 1 }, b: midnight + 5, c: { at: midnight - 1 }, d: midnight - 86400e3 }, NOW), 2);
 });
+
+test('GET /scout.user.js : the userscript itself, as JavaScript, for Tampermonkey to install and update', async () => {
+  const srv = server();
+  await new Promise((r) => srv.listen(0, '127.0.0.1', r));
+  try {
+    const res = await fetch(`http://127.0.0.1:${srv.address().port}/scout.user.js`);
+    assert.equal(res.status, 200);
+    assert.match(res.headers.get('content-type'), /^text\/javascript/);
+    assert.equal(await res.text(), src);
+    assert.equal((await fetch(`http://127.0.0.1:${srv.address().port}/userscripts/other.js`)).status, 404);
+  } finally {
+    await new Promise((r) => srv.close(r));
+  }
+});

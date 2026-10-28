@@ -301,11 +301,14 @@ posts.
 text. HN is for conversation between humans. » (newsguidelines.html). On HN,
 take the draft as notes and write the comment yourself.
 
-Install : Tampermonkey or Violentmonkey → new script → paste
-[userscripts/scout.user.js](userscripts/scout.user.js). For Brouillon :
-`npm run ui` running and port 4173 forwarded to the host (VS Code, Ports
-panel). Subreddits, topics and thresholds are constants at the top of the
-script.
+Install : `npm run ui` running and port 4173 forwarded to the host (VS
+Code, Ports panel), then open http://localhost:4173/scout.user.js ;
+Tampermonkey or Violentmonkey offers to install it. Updates come from the
+same URL whenever `@version` goes up (Tampermonkey → Utilities → Check for
+userscript updates, or its daily check) ; the panel header shows the
+installed version. Brouillon needs the same server. Subreddits, topics
+and thresholds are constants at the top of
+[userscripts/scout.user.js](userscripts/scout.user.js).
 
 ## Scripts
 
