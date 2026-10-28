@@ -45,10 +45,11 @@ export function parse(text) {
 
 // `claude -p` without tools on the Max subscription : the API key is dropped from the env, and
 // --safe-mode keeps the user's CLAUDE.md, hooks and skills out of the draft (auth unchanged).
+// prompts/voice.md, Meitogi's voice, comes after the site's prompt.
 // stream-json is read for its result line and its rate_limit_event : the subscription windows'
 // utilization only comes there. usage = { in, out } tokens, plus { fiveHour, sevenDay } in %.
 export function claude(input, { root = ROOT, prompt = 'reddit-reply.md', run = spawn } = {}) {
-  const args = ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', join(root, 'prompts', prompt)];
+  const args = ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', join(root, 'prompts', prompt), '--append-system-prompt-file', join(root, 'prompts', 'voice.md')];
   const env = { ...process.env };
   delete env.ANTHROPIC_API_KEY;
   return new Promise((resolve, reject) => {

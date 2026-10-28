@@ -126,7 +126,7 @@ test('claude : -p without tools, the prompt file, input on stdin, no API key in 
     const { run, calls } = fakeSpawn(0, STREAM);
     assert.deepEqual(await claude('the thread', { root: '/app', prompt: 'hn-reply.md', run }), { verdict: 'Répondre au post', analysis: 'Une question.', draft: 'Draft text', usage: { fiveHour: 3, sevenDay: 31, in: 2321, out: 57 } });
     assert.equal(calls[0].cmd, 'claude');
-    assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', '/app/prompts/hn-reply.md']);
+    assert.deepEqual(calls[0].args, ['-p', '--safe-mode', '--tools', '', '--no-session-persistence', '--output-format', 'stream-json', '--verbose', '--system-prompt-file', '/app/prompts/hn-reply.md', '--append-system-prompt-file', '/app/prompts/voice.md']);
     assert.equal(calls[0].input, 'the thread');
     assert.equal('ANTHROPIC_API_KEY' in calls[0].env, false);
     assert.equal(calls[0].env.PATH, process.env.PATH);

@@ -9,7 +9,8 @@ first-hand detail, a counterpoint with a reason. HN readers are experts
 and allergic to marketing.
 
 Write :
-- in English, plain and precise, curious rather than enthusiastic ;
+- in English, in Meitogi's voice (given after these instructions),
+  curious rather than enthusiastic ;
   a quick comment : 1 to 3 sentences, 60 words at most ; HN plain text : no markdown, no bullet characters,
   paragraphs separated by a blank line, code indented by two spaces,
   *word* for italics, bare URLs ; no emoji, no greeting, no sign-off ;

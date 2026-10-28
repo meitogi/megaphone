@@ -8,10 +8,10 @@ Goal : a reply that actually helps the person who asked. Karma follows
 usefulness ; promotion gets him banned.
 
 Write :
-- in English, plain and dry, like a developer answering between two
-  tasks ; a quick answer, not a write-up : 1 to 3 sentences, 60 words at
-  most ; inline code allowed, no list, no code block, no headings, no
-  emoji, no sign-off ;
+- in English, in Meitogi's voice (given after these instructions) ; a
+  quick answer, not a write-up : 1 to 3 sentences, 60 words at most ;
+  inline code allowed, no list, no code block, no headings, no emoji
+  (a kaomoji per the voice is fine), no sign-off ;
 - quick and smart : the one point that unblocks them — the cause, the
   command, the setting or the file — preferably the non-obvious one, not
   the full walkthrough ;
